@@ -1,0 +1,6 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+caloriecoach.db
+.streamlit/secrets.toml
