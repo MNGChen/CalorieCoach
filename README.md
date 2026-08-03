@@ -89,11 +89,23 @@ I am hungry. What can I still eat today?
 
 After selecting **Attach today's intake** and **Attach today's target**, the coach receives the current foods, calories, macros, and targets. It responds with a practical food suggestion based on the remaining calorie and macro budget, while avoiding medical diagnosis.
 
+### Example 3: Daily Meal Planner
+
+**User input**
+
+```text
+Daily calorie target: 2,000 kcal
+Dietary preference: High protein
+```
+
+**Application output**
+
+The Meal Planner generates a one-day plan with Breakfast, Lunch, Dinner, and Snack options. Each meal includes estimated calories, protein, carbohydrates, and fat, followed by the total daily calories for the plan.
+
 ## 6. Known Limitations
 
 - Food analysis is an estimate: preparation method, restaurant recipe, portion size, sauces, and sugar can substantially change nutrition values.
 - A valid Gemini API key and network connection are required for AI food analysis, meal plans, and coaching. When the API is unavailable, the app shows an error rather than inventing an answer.
-- The current interface supports adding and deleting food logs, but does not yet provide a direct UI for editing an existing entry.
 
 ## 7. Future Improvements
 
