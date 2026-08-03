@@ -1,44 +1,101 @@
 # CalorieCoach
 
-CalorieCoach is a production-minded Streamlit nutrition companion for calorie awareness, meal logging, progress tracking, and supportive AI nutrition guidance. It is not a general-purpose chatbot and does not provide medical diagnosis or treatment.
+## 1. Project Title and Description
 
-## Features
+**CalorieCoach** is an AI-assisted nutrition tracker that helps people monitor calories and macronutrients, plan meals, and receive context-aware nutrition coaching. It is intended for people who want to lose weight, maintain weight, build muscle, or develop healthier eating habits.
 
-- Personalized BMI, BMR, TDEE, calorie, and macro estimates using Mifflin–St Jeor
-- SQLite food and weight tracking with SQLAlchemy ORM
-- AI food analysis that estimates calories and macros from natural-language meals
-- AI meal plans for high-protein, vegetarian, keto, low-carb, and budget preferences
-- Daily dashboard, progress charts, and history views
-- Gemini API integration with a useful local fallback when no key is configured
+## 2. Problem Statement
 
-## Quick start
+Estimating food calories and macros, then connecting those choices to a daily goal, is difficult to do consistently. CalorieCoach provides one place to log meals, review progress, estimate food nutrition with AI, and ask practical questions such as “I am hungry—what can I still eat today?”
 
-1. Create and activate a Python 3.11 virtual environment.
-2. Install dependencies:
+## 3. Technology Stack
+
+- Python 3.11
+- Streamlit
+- Google Gemini API through its REST API
+- `python-dotenv`
+- SQLite and SQLAlchemy ORM
+- `requests`
+- `pandas`
+- `matplotlib`
+- Pillow
+
+## 4. Setup Instructions
+
+1. Clone the repository and enter the project folder.
+
+   ```bash
+   git clone <your-repository-url>
+   cd CalorieCoach
+   ```
+
+2. Create and activate a Python 3.11 virtual environment.
+
+   ```powershell
+   py -3.11 -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   ```
+
+3. Install the project dependencies.
 
    ```bash
    pip install -r requirements.txt
    ```
 
-3. Copy `.env.example` to `.env`, then add a Gemini API key if you want live AI generation.
-4. Start the application:
+4. Copy the environment template to `.env`.
+
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+
+5. Open `.env` and add your Gemini API key.
+
+   ```env
+   GEMINI_API_KEY=your_google_gemini_api_key
+   GEMINI_MODEL=gemini-2.0-flash
+   ```
+
+6. Run the Streamlit application.
 
    ```bash
    streamlit run app.py
    ```
 
-The SQLite database (`caloriecoach.db`) is created automatically in the project folder.
+7. Open the local URL shown in the terminal. SQLite creates `caloriecoach.db` automatically when the application starts.
 
-## Architecture
+## 5. Usage Examples
+
+### Example 1: AI food analysis
+
+**User input**
 
 ```text
-app.py / pages/       Streamlit UI
-services/             Calculation, profile, food-log, and reporting use cases
-ai/                   Central prompts and Gemini REST integration
-database/             SQLAlchemy models and session lifecycle
-utils/                Shared UI helpers
+I ate chicken rice and bubble tea
 ```
 
-## Privacy and safety
+**Application output**
 
-Food estimates are approximate and vary with recipe and portion. CalorieCoach offers educational guidance only; it must not be used to diagnose or treat health conditions. Users with medical conditions, pregnancy, eating-disorder concerns, or special nutritional needs should work with a qualified clinician or dietitian.
+The app displays estimated food items with calories, protein, carbohydrates, fat, and a short explanation of the portion assumptions. Choose a meal type, such as Lunch, then select **Add all estimates to today's log** to save them.
+
+### Example 2: Context-aware AI coaching
+
+**User input**
+
+```text
+I am hungry. What can I still eat today?
+```
+
+**Application output**
+
+After selecting **Attach today's intake** and **Attach today's target**, the coach receives the current foods, calories, macros, and targets. It responds with a practical food suggestion based on the remaining calorie and macro budget, while avoiding medical diagnosis.
+
+## 6. Known Limitations
+
+- Food analysis is an estimate: preparation method, restaurant recipe, portion size, sauces, and sugar can substantially change nutrition values.
+- A valid Gemini API key and network connection are required for AI food analysis, meal plans, and coaching. When the API is unavailable, the app shows an error rather than inventing an answer.
+- The current interface supports adding and deleting food logs, but does not yet provide a direct UI for editing an existing entry.
+
+## 7. Future Improvements
+
+- Add an in-place food-log editing interface and explicit weekly and monthly summary cards.
+- Add user authentication, multiple profiles, and optional barcode or image-based food recognition.
