@@ -46,3 +46,21 @@ class WeightEntry(Base):
     weight_kg: Mapped[float] = mapped_column(Float)
     recorded_on: Mapped[date] = mapped_column(Date, default=date.today, unique=True, index=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class Food(Base):
+    """A locally-seeded food record; nutrition is for one typical serving."""
+
+    __tablename__ = "foods"
+
+    # The workbook's stable ``No.`` value is retained as the public food id.
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    normalized_name: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    serving_quantity: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    serving_unit: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    calories: Mapped[float] = mapped_column(Float)
+    protein_g: Mapped[float] = mapped_column(Float, default=0)
+    carbs_g: Mapped[float] = mapped_column(Float, default=0)
+    fat_g: Mapped[float] = mapped_column(Float, default=0)

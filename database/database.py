@@ -23,6 +23,11 @@ def init_db() -> None:
     from database import models  # noqa: F401 - registers model metadata
 
     Base.metadata.create_all(bind=engine)
+    # Keep the bundled food catalogue local and queryable by backend services.
+    from database.food_seed import seed_food_database
+
+    with get_session() as session:
+        seed_food_database(session)
 
 
 @contextmanager

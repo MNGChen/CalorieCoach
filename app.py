@@ -9,6 +9,7 @@ from ai.nutrition_ai import AIServiceError, NutritionAI
 from database.database import init_db
 from services.meal_service import MealService
 from services.nutrition_service import NutritionService
+from services.food_analysis_service import FoodAnalysisService
 from utils.helpers import render_metric_cards
 
 st.set_page_config(page_title="CalorieCoach", page_icon="🥗", layout="wide")
@@ -69,7 +70,7 @@ with tab_profile:
             except (ValueError, TypeError) as exc: st.error(str(exc))
 
 with tab_log:
-    manual_log_tab, ai_analysis_tab = st.tabs(["Add manually", "AI food analysis"])
+    manual_log_tab, ai_analysis_tab = st.tabs(["Add manually", "Food lookup"])
     with manual_log_tab:
         with st.form("manual_log"):
             cols = st.columns(3)
@@ -86,34 +87,49 @@ with tab_log:
                     meals.add_log(food_name=name.strip(), meal_type=meal_type, calories=calories, protein_g=protein, carbs_g=carbs, fat_g=fat, log_date=log_day)
                     st.success("Meal logged."); st.rerun()
     with ai_analysis_tab:
-        description = st.text_area("What did you eat?", placeholder="I ate chicken rice and bubble tea", key="log_food_description")
+        description = st.text_area("What did you eat?", placeholder="I ate 200g chicken breast and one egg", key="log_food_description")
         ai_columns = st.columns(2)
         ai_meal_type = ai_columns[0].selectbox("Meal type for these estimates", ["Breakfast", "Lunch", "Dinner", "Snack"], key="ai_meal_type")
         ai_log_day = ai_columns[1].date_input("Log date", date.today(), key="ai_log_day")
-        if st.button("Analyze food", type="primary"):
+        if st.button("Find nutrition", type="primary"):
             if not description.strip():
                 st.error("Describe at least one food before analysing it.")
             else:
                 st.session_state.pop("food_analysis_result", None)
                 try:
-                    with st.spinner("Estimating nutrition..."):
-                        st.session_state["food_analysis_result"] = NutritionAI().analyze_food(description)
-                except AIServiceError as exc:
+                    with st.spinner("Checking local foods, then searching the web only if needed..."):
+                        st.session_state["food_analysis_result"] = FoodAnalysisService().analyze(description)
+                except (AIServiceError, ValueError) as exc:
                     st.error(str(exc))
         result = st.session_state.get("food_analysis_result")
         if result:
-            items = result.data.get("items", [])
+            items = result
             if not items:
                 st.error("No food items were returned. Try a more specific description.")
             else:
-                st.dataframe(items, use_container_width=True, hide_index=True)
-                st.caption(result.data.get("reasoning", ""))
-                if st.button("Add all estimates to today's log", type="primary"):
+                display_items = [{"Input food": item["input_food"], "Source": item["source_type"],
+                                  "Resolved": item["resolved"],
+                                  "Food": item["matched_food"]["name"] if item["resolved"] else "Not found",
+                                  "Serving": item["matched_food"]["serving_size"] if item["resolved"] else "",
+                                  "Calories": item["matched_food"]["calories"] if item["resolved"] else "",
+                                  "Protein (g)": item["matched_food"]["protein_g"] if item["resolved"] else "",
+                                  "Carbs (g)": item["matched_food"]["carbs_g"] if item["resolved"] else "",
+                                  "Fat (g)": item["matched_food"]["fat_g"] if item["resolved"] else ""} for item in items]
+                st.dataframe(display_items, use_container_width=True, hide_index=True)
+                for item in items:
+                    if item["source_type"] == "web" and item["resolved"]:
+                        st.caption("Web source: " + ", ".join(source["url"] for source in item["sources"]))
+                    elif not item["resolved"]:
+                        st.caption(f"{item['input_food']}: {item['reason']}")
+                if st.button("Add resolved foods to today's log", type="primary"):
                     try:
                         for item in items:
-                            meals.add_log(food_name=str(item.get("name", "Food")), meal_type=ai_meal_type, calories=float(item.get("calories", 0)), protein_g=float(item.get("protein_g", 0)), carbs_g=float(item.get("carbs_g", 0)), fat_g=float(item.get("fat_g", 0)), log_date=ai_log_day, notes="AI estimate")
+                            if not item["resolved"]:
+                                continue
+                            food = item["matched_food"]
+                            meals.add_log(food_name=str(food["name"]), meal_type=ai_meal_type, calories=float(food["calories"]), protein_g=float(food["protein_g"]), carbs_g=float(food["carbs_g"]), fat_g=float(food["fat_g"]), log_date=ai_log_day, notes="Local food database match")
                         del st.session_state["food_analysis_result"]
-                        st.success(f"Added {len(items)} estimate(s) to today's food log.")
+                        st.success(f"Added {sum(item['resolved'] for item in items)} resolved food(s) to today's food log.")
                     except (TypeError, ValueError) as exc:
                         st.error(f"Could not save the estimates: {exc}")
     st.subheader("Today's food log")
