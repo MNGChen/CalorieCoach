@@ -24,12 +24,15 @@ def render_metric_cards(
     fat_goal: float = 0,
 ) -> None:
     """Render consistent daily summary metrics."""
-    remaining = max(0, calorie_goal - calories)
-    columns = st.columns(5)
-    for col, label, value in zip(columns, ["Target", "Consumed", "Remaining", "Protein", "Carbs / Fat"],
-                                 [f"{calorie_goal:.0f} kcal", f"{calories:.0f} kcal", f"{remaining:.0f} kcal",
-                                  f"{protein:.0f} g", f"{carbs:.0f} / {fat:.0f} g"]):
-        col.metric(label, value)
+    columns = st.columns(4)
+    for col, label, consumed, target, unit in (
+        (columns[0], "Calories", calories, calorie_goal, "kcal"),
+        (columns[1], "Protein", protein, protein_goal, "g"),
+        (columns[2], "Carbohydrates", carbs, carbs_goal, "g"),
+        (columns[3], "Fat", fat, fat_goal, "g"),
+    ):
+        remaining = target - consumed
+        col.metric(label, f"{consumed:.0f} / {target:.0f} {unit}", delta=f"{remaining:.0f} {unit} remaining")
     _render_goal_bar("Calories", calories, calorie_goal, "🔥")
     st.subheader("Macro progress")
     for label, current, target, icon in (
@@ -45,11 +48,12 @@ def _render_goal_bar(label: str, current: float, target: float, icon: str, unit:
     exceeded = target > 0 and current > target
     color = "#dc2626" if exceeded else "#16a34a"
     width = min(100, (current / target * 100) if target else 0)
+    remaining = target - current
     status = " — over target" if exceeded else ""
     st.markdown(
         f"""<div style="margin:0.35rem 0 0.7rem">
         <div style="display:flex;justify-content:space-between;font-size:0.9rem">
-          <span>{icon} {label}{status}</span><span>{current:.0f} / {target:.0f} {unit}</span>
+          <span>{icon} {label}{status}</span><span>{current:.0f} / {target:.0f} {unit} · {remaining:.0f} remaining</span>
         </div>
         <div style="background:#e5e7eb;border-radius:999px;height:0.65rem;overflow:hidden;margin-top:0.2rem">
           <div style="background:{color};width:{width:.1f}%;height:100%;border-radius:999px"></div>

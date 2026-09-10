@@ -57,6 +57,7 @@ class NutritionValidationService:
                     "status": stats.deterministic_status, "confidence": stats.deterministic_confidence,
                     "score": stats.deterministic_score, "reason": stats.reason},
                 "sources": [{"title": item.nutrition.source.title, "url": item.nutrition.source.url,
+                             "domain": item.nutrition.source.domain,
                              "serving_size": item.serving_size, "calories": item.calories,
                              "protein_g": item.protein_g, "carbs_g": item.carbs_g, "fat_g": item.fat_g}
                             for item in stats.comparable_sources]}

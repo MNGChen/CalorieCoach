@@ -12,12 +12,15 @@ from services.calorie_calculator import CalorieCalculator, NutritionTargets
 
 
 class NutritionService:
+    def __init__(self, session_factory: object = get_session) -> None:
+        self.session_factory = session_factory
+
     def get_profile(self) -> Optional[UserProfile]:
-        with get_session() as session:
+        with self.session_factory() as session:  # type: ignore[operator]
             return session.scalar(select(UserProfile).order_by(UserProfile.id).limit(1))
 
     def save_profile(self, **values: object) -> UserProfile:
-        with get_session() as session:
+        with self.session_factory() as session:  # type: ignore[operator]
             profile = session.scalar(select(UserProfile).order_by(UserProfile.id).limit(1))
             if profile is None:
                 profile = UserProfile(**values)  # type: ignore[arg-type]
@@ -34,7 +37,7 @@ class NutritionService:
                                            profile.activity_level, profile.goal)
 
     def daily_totals(self, day: date) -> dict[str, float]:
-        with get_session() as session:
+        with self.session_factory() as session:  # type: ignore[operator]
             row = session.execute(select(func.coalesce(func.sum(FoodLog.calories), 0),
                                          func.coalesce(func.sum(FoodLog.protein_g), 0),
                                          func.coalesce(func.sum(FoodLog.carbs_g), 0),

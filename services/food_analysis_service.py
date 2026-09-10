@@ -41,7 +41,8 @@ class FoodAnalysisService:
                     continue
                 nutrition = self.calculator.calculate(food, input_food)
                 logger.info("Local DB search: matched %s", food.name)
-                results.append({"input_food": input_food.name, "matched": True, "resolved": True,
+                results.append({"input_food": input_food.name, "quantity": input_food.quantity, "unit": input_food.unit,
+                                "matched": True, "resolved": True,
                                 "source_type": "local_database", "validation_status": "accepted",
                                 "confidence": "high", "confidence_score": 1.0, "sources": [], "matched_food": {
                     "id": food.id, "name": food.name, "serving_size": nutrition.serving_size,
@@ -71,7 +72,8 @@ class FoodAnalysisService:
         values = (stats.median_calories, stats.median_protein_g, stats.median_carbs_g, stats.median_fat_g)
         if decision.status == "rejected" or any(value is None for value in values):
             reason = decision.reason if decision.status == "rejected" else "Comparable sources have incomplete macro nutrition data."
-            return {"input_food": input_food.name, "matched": False, "resolved": False, "source_type": "web",
+            return {"input_food": input_food.name, "quantity": input_food.quantity, "unit": input_food.unit,
+                    "matched": False, "resolved": False, "source_type": "web",
                     "validation_status": "rejected" if decision.status == "rejected" else "uncertain",
                     "confidence": decision.confidence, "confidence_score": decision.confidence_score,
                     "matched_food": None, "sources": source_details, "reason": reason}
@@ -81,7 +83,8 @@ class FoodAnalysisService:
                                    base.serving_size)
         nutrition = self.calculator.calculate_serving(serving, input_food)
         logger.info("Nutrition extracted and validated. Source: web")
-        return {"input_food": input_food.name, "matched": False, "resolved": True, "source_type": "web",
+        return {"input_food": input_food.name, "quantity": input_food.quantity, "unit": input_food.unit,
+                "matched": False, "resolved": True, "source_type": "web",
                 "validation_status": decision.status, "confidence": decision.confidence,
                 "confidence_score": decision.confidence_score, "sources": source_details,
                 "matched_food": {"name": input_food.name, "serving_size": nutrition.serving_size,
@@ -93,12 +96,21 @@ class FoodAnalysisService:
         used_urls = {source.nutrition.source.url for source in stats.comparable_sources}
         outlier_urls = {source.nutrition.source.url for source in stats.outlier_sources}
         return [{"title": source.source.title, "url": source.source.url, "domain": source.source.domain,
+                 "source_quality": FoodAnalysisService._source_quality(source.source.domain),
                  "used": source.source.url in used_urls, "outlier": source.source.url in outlier_urls,
                  "serving_size": source.serving_size, "calories": source.calories,
                  "protein_g": source.protein_g, "carbs_g": source.carbs_g, "fat_g": source.fat_g}
                 for source in extracted_sources]
 
     @staticmethod
+    def _source_quality(domain: str) -> str:
+        if ".gov" in domain or domain.endswith("nhs.uk"):
+            return "official_or_government"
+        if any(name in domain for name in ("nutrition", "fatsecret", "myfitnesspal", "usda")):
+            return "nutrition_database"
+        return "general_website"
+
+    @staticmethod
     def _unresolved(input_food: str, reason: str) -> dict[str, Any]:
-        return {"input_food": input_food, "matched": False, "resolved": False, "source_type": "web",
+        return {"input_food": input_food, "quantity": None, "unit": None, "matched": False, "resolved": False, "source_type": "web",
                 "matched_food": None, "sources": [], "reason": reason}

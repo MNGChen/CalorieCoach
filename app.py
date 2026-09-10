@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date
+from uuid import uuid4
 
 import streamlit as st
 
@@ -10,11 +11,14 @@ from database.database import init_db
 from services.meal_service import MealService
 from services.nutrition_service import NutritionService
 from services.food_analysis_service import FoodAnalysisService
+from services.meal_logging_service import MealLoggingService
+from services.daily_nutrition_service import DailyNutritionService
 from utils.helpers import render_metric_cards
 
 st.set_page_config(page_title="CalorieCoach", page_icon="🥗", layout="wide")
 init_db()
 nutrition, meals = NutritionService(), MealService()
+daily_nutrition, meal_logging = DailyNutritionService(nutrition), MealLoggingService()
 
 st.title("🥗 CalorieCoach")
 st.caption("Build sustainable nutrition habits, one meal at a time.")
@@ -23,8 +27,9 @@ profile = nutrition.get_profile()
 if not profile:
     st.info("Start by saving your profile below. Your calorie target is then calculated automatically.")
 else:
+    summary = daily_nutrition.summary(date.today())
     targets = nutrition.targets(profile)
-    totals = nutrition.daily_totals(date.today())
+    totals = summary["consumed"]
     render_metric_cards(
         totals["calories"], targets.calorie_goal, totals["protein_g"], totals["carbs_g"], totals["fat_g"],
         targets.protein_goal_g, targets.carbs_goal_g, targets.fat_goal_g,
@@ -34,7 +39,8 @@ else:
     st.subheader("Today's food")
     if today_logs:
         st.dataframe(
-            [{"Meal": item.meal_type, "Food": item.food_name, "Calories": item.calories,
+            [{"Meal": item.meal_type, "Food": item.food_name, "Quantity": f"{item.quantity:g} {item.unit or ''}" if item.quantity else "",
+              "Calories": item.calories,
               "Protein (g)": item.protein_g, "Carbs (g)": item.carbs_g, "Fat (g)": item.fat_g}
              for item in today_logs],
             use_container_width=True,
@@ -89,7 +95,7 @@ with tab_log:
     with ai_analysis_tab:
         description = st.text_area("What did you eat?", placeholder="I ate 200g chicken breast and one egg", key="log_food_description")
         ai_columns = st.columns(2)
-        ai_meal_type = ai_columns[0].selectbox("Meal type for these estimates", ["Breakfast", "Lunch", "Dinner", "Snack"], key="ai_meal_type")
+        ai_meal_type = ai_columns[0].selectbox("Meal type (optional)", ["Unknown", "Breakfast", "Lunch", "Dinner", "Snack"], key="ai_meal_type")
         ai_log_day = ai_columns[1].date_input("Log date", date.today(), key="ai_log_day")
         if st.button("Find nutrition", type="primary"):
             if not description.strip():
@@ -99,6 +105,7 @@ with tab_log:
                 try:
                     with st.spinner("Checking local foods, then searching the web only if needed..."):
                         st.session_state["food_analysis_result"] = FoodAnalysisService().analyze(description)
+                        st.session_state["food_analysis_request_id"] = str(uuid4())
                 except (AIServiceError, ValueError) as exc:
                     st.error(str(exc))
         result = st.session_state.get("food_analysis_result")
@@ -123,19 +130,21 @@ with tab_log:
                         st.caption(f"{item['input_food']}: {item['reason']}")
                 if st.button("Add resolved foods to today's log", type="primary"):
                     try:
-                        for item in items:
-                            if not item["resolved"]:
-                                continue
-                            food = item["matched_food"]
-                            meals.add_log(food_name=str(food["name"]), meal_type=ai_meal_type, calories=float(food["calories"]), protein_g=float(food["protein_g"]), carbs_g=float(food["carbs_g"]), fat_g=float(food["fat_g"]), log_date=ai_log_day, notes="Local food database match")
+                        response = meal_logging.save_resolved(description, items,
+                                                              None if ai_meal_type == "Unknown" else ai_meal_type,
+                                                              ai_log_day, st.session_state.get("food_analysis_request_id"))
                         del st.session_state["food_analysis_result"]
-                        st.success(f"Added {sum(item['resolved'] for item in items)} resolved food(s) to today's food log.")
+                        st.session_state.pop("food_analysis_request_id", None)
+                        daily = response["daily_summary"]
+                        st.success(f"Saved {len(response['meal']['items'])} food(s). Today's consumed calories: {daily['consumed']['calories']:.0f} kcal.")
                     except (TypeError, ValueError) as exc:
                         st.error(f"Could not save the estimates: {exc}")
     st.subheader("Today's food log")
     logs = meals.logs(start=date.today(), end=date.today())
     if logs:
-        st.dataframe([{"ID": x.id, "Meal": x.meal_type, "Food": x.food_name, "Calories": x.calories, "Protein": x.protein_g, "Carbs": x.carbs_g, "Fat": x.fat_g} for x in logs], use_container_width=True, hide_index=True)
+        st.dataframe([{"ID": x.id, "Meal": x.meal_type, "Food": x.food_name, "Quantity": f"{x.quantity:g} {x.unit or ''}" if x.quantity else "",
+                       "Calories": x.calories, "Protein": x.protein_g, "Carbs": x.carbs_g, "Fat": x.fat_g,
+                       "Source": x.source_type or "manual", "Confidence": x.confidence or ""} for x in logs], use_container_width=True, hide_index=True)
         delete_id = st.selectbox("Delete a log", [x.id for x in logs], format_func=lambda ident: next(f"{x.food_name} ({x.calories:.0f} kcal)" for x in logs if x.id == ident))
         if st.button("Delete selected log"):
             meals.delete_log(delete_id)
