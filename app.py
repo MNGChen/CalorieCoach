@@ -6,19 +6,21 @@ from uuid import uuid4
 
 import streamlit as st
 
-from ai.nutrition_ai import AIServiceError, NutritionAI
+from ai.nutrition_ai import AIServiceError
 from database.database import init_db
 from services.meal_service import MealService
 from services.nutrition_service import NutritionService
 from services.food_analysis_service import FoodAnalysisService
 from services.meal_logging_service import MealLoggingService
 from services.daily_nutrition_service import DailyNutritionService
+from services.nutrition_coach_service import NutritionCoachService
 from utils.helpers import render_metric_cards
 
 st.set_page_config(page_title="CalorieCoach", page_icon="🥗", layout="wide")
 init_db()
 nutrition, meals = NutritionService(), MealService()
 daily_nutrition, meal_logging = DailyNutritionService(nutrition), MealLoggingService()
+coach = NutritionCoachService(daily_nutrition=daily_nutrition, nutrition=nutrition, meals=meals)
 
 st.title("🥗 CalorieCoach")
 st.caption("Build sustainable nutrition habits, one meal at a time.")
@@ -153,32 +155,23 @@ with tab_log:
         st.caption("No food logged today yet.")
 
 with tab_coach:
-    question = st.text_area("Ask your nutrition coach", placeholder="How can I increase protein without increasing calories too much?")
-    attach_intake = st.checkbox("Attach today's intake", help="Includes today's food, calories, and macros in your question.")
-    attach_target = st.checkbox("Attach today's target", help="Includes your calorie and macro goals in your question.")
+    question = st.text_area("Ask your nutrition coach", placeholder="What should I eat next?", key="coach_question")
     if st.button("Get coaching advice"):
-        if not question.strip():
-            st.error("Please enter a question for your coach.")
-        else:
-            context_parts = [f"User goal: {profile.goal if profile else 'not set'}."]
-            if attach_intake:
-                intake = nutrition.daily_totals(date.today())
-                foods = meals.logs(start=date.today(), end=date.today())
-                food_names = ", ".join(item.food_name for item in foods) or "No foods logged"
-                context_parts.append(f"Today's intake: {intake['calories']:.0f} kcal, {intake['protein_g']:.0f}g protein, {intake['carbs_g']:.0f}g carbs, {intake['fat_g']:.0f}g fat. Foods: {food_names}.")
-            if attach_target:
-                if profile:
-                    target = nutrition.targets(profile)
-                    context_parts.append(f"Today's targets: {target.calorie_goal} kcal, {target.protein_goal_g}g protein, {target.carbs_goal_g}g carbs, {target.fat_goal_g}g fat.")
-                else:
-                    context_parts.append("Today's targets are unavailable because the profile is not set.")
-            context = " ".join(context_parts)
-            st.session_state.pop("coach_answer", None)
-            try:
-                with st.spinner("Thinking..."):
-                    st.session_state["coach_answer"] = NutritionAI().coach(question, context)
-            except AIServiceError as exc:
-                st.error(str(exc))
+        st.session_state.pop("coach_answer", None)
+        try:
+            with st.spinner("Reviewing today's nutrition progress..."):
+                st.session_state["coach_answer"] = coach.get_nutrition_advice(question)
+        except ValueError as exc:
+            st.error(str(exc))
     if answer := st.session_state.get("coach_answer"):
-        st.subheader("Coach's advice")
-        st.write(answer)
+        if not answer["available"]:
+            st.info(answer["reason"])
+        else:
+            st.subheader("Coach's advice")
+            st.write(answer["summary"])
+            st.write(answer["recommendation"])
+            st.caption(answer["reasoning_summary"])
+            if answer["avoid_or_limit"]:
+                st.write("Consider limiting: " + ", ".join(answer["avoid_or_limit"]))
+            budget = answer["target_for_next_meal"]
+            st.caption(f"Remaining daily budget: {budget['calories']:.0f} kcal · {budget['protein_g']:.0f}g protein · {budget['carbs_g']:.0f}g carbs · {budget['fat_g']:.0f}g fat")

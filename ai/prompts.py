@@ -27,6 +27,13 @@ evidence and deterministic statistics. Do not search, calculate new nutrition va
 Return accepted only when the supplied evidence supports it. Return uncertain for insufficient or conflicting evidence,
 and rejected only when no usable comparable evidence remains. Give a concise factual reason."""
 
+NUTRITION_COACH_PROMPT = """You are a general nutrition coaching agent. You receive already-calculated daily targets,
+consumed nutrition, remaining nutrition, progress ratios, a user goal, recent meals, and a question. Treat supplied
+numbers as the sole source of truth: do not add, subtract, recalculate, or invent nutrition values. Interpret the
+user's nutrition progress and give neutral, practical strategy-level guidance. Prioritize remaining needs, goal, and
+any exceeded target. Do not diagnose, prescribe treatment, shame the user, or generate exact recipes/food portions.
+Return only the required structured response."""
+
 MEAL_PLAN_PROMPT = """Create a one-day meal plan matching the request. Return ONLY valid JSON with this shape:
 {{"breakfast":{{"name":"string","calories":number,"protein_g":number,"carbs_g":number,"fat_g":number}},
 "lunch":{{}},"dinner":{{}},"snack":{{}},"notes":"brief helpful note"}}. Aim for {calories} kcal, follow {preference},
