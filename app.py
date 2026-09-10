@@ -14,6 +14,7 @@ from services.food_analysis_service import FoodAnalysisService
 from services.meal_logging_service import MealLoggingService
 from services.daily_nutrition_service import DailyNutritionService
 from services.nutrition_coach_service import NutritionCoachService
+from services.nutrition_orchestrator import NutritionOrchestrator
 from utils.helpers import render_metric_cards
 
 st.set_page_config(page_title="CalorieCoach", page_icon="🥗", layout="wide")
@@ -58,7 +59,7 @@ else:
     else:
         st.caption("No food logged today yet. Add a meal below or use AI Food Analysis.")
 
-tab_profile, tab_log, tab_coach = st.tabs(["Profile", "Daily food log", "AI Coach"])
+tab_profile, tab_log, tab_coach, tab_assistant = st.tabs(["Profile", "Daily food log", "AI Coach", "V1 Assistant"])
 with tab_profile:
     with st.form("profile_form"):
         left, right = st.columns(2)
@@ -175,3 +176,17 @@ with tab_coach:
                 st.write("Consider limiting: " + ", ".join(answer["avoid_or_limit"]))
             budget = answer["target_for_next_meal"]
             st.caption(f"Remaining daily budget: {budget['calories']:.0f} kcal · {budget['protein_g']:.0f}g protein · {budget['carbs_g']:.0f}g carbs · {budget['fat_g']:.0f}g fat")
+
+with tab_assistant:
+    assistant_message = st.text_area("Ask CalorieCoach", placeholder="What should I eat for dinner?", key="v1_assistant_message")
+    if st.button("Send to V1 Assistant"):
+        if not assistant_message.strip(): st.error("Enter a message first.")
+        else:
+            try:
+                with st.spinner("Routing your request..."):
+                    st.session_state["v1_assistant_response"] = NutritionOrchestrator().handle(assistant_message)
+            except Exception:
+                st.error("The assistant is currently unavailable.")
+    if response := st.session_state.get("v1_assistant_response"):
+        st.write(response["message"])
+        st.json(response["data"])

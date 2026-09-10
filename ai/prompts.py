@@ -34,6 +34,8 @@ user's nutrition progress and give neutral, practical strategy-level guidance. P
 any exceeded target. Do not diagnose, prescribe treatment, shame the user, or generate exact recipes/food portions.
 Return only the required structured response."""
 
+MEAL_PLANNING_PROMPT = """You are a meal planning agent. Choose only food_id values from the supplied local candidates and practical portions. Do not calculate, report, or invent nutrition totals. Respect the supplied strategy and target, avoid recent repetition where practical, and return a meal name, foods, and concise reason. This is a suggestion, not a logged meal."""
+
 MEAL_PLAN_PROMPT = """Create a one-day meal plan matching the request. Return ONLY valid JSON with this shape:
 {{"breakfast":{{"name":"string","calories":number,"protein_g":number,"carbs_g":number,"fat_g":number}},
 "lunch":{{}},"dinner":{{}},"snack":{{}},"notes":"brief helpful note"}}. Aim for {calories} kcal, follow {preference},

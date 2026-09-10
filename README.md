@@ -111,3 +111,14 @@ The Meal Planner generates a one-day plan with Breakfast, Lunch, Dinner, and Sna
 
 - Add an in-place food-log editing interface and explicit weekly and monthly summary cards.
 - Add user authentication, multiple profiles, and optional barcode or image-based food recognition.
+
+## V1 orchestration
+
+```text
+Router → Log food → Food analysis → Save + daily tracking
+       → Progress → Daily tracking
+       → Nutrition question → Daily tracking → Coach
+       → Meal recommendation → Daily tracking → Coach → Local candidates → Meal planner → Portion calculation
+```
+
+LLM agents use validated structured output. Food retrieval, nutrition arithmetic, validation statistics, persistence, and daily aggregation remain deterministic services. Meal recommendations are never logged automatically.
