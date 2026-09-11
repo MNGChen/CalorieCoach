@@ -30,7 +30,7 @@ class CalorieCalculator:
     @staticmethod
     def calculate(age: int, gender: str, height_cm: float, weight_kg: float,
                   activity_level: str, goal: str) -> NutritionTargets:
-        if age < 16 or height_cm <= 0 or weight_kg <= 0:
+        if age < 18 or height_cm <= 0 or weight_kg <= 0:
             raise ValueError("Enter a valid adult age, height, and weight.")
         base = 10 * weight_kg + 6.25 * height_cm - 5 * age
         bmr = base + (5 if gender.lower() == "male" else -161)

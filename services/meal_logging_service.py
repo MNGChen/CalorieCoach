@@ -20,12 +20,16 @@ logger = logging.getLogger(__name__)
 class MealLoggingService:
     _MEAL_TYPES = {"breakfast": "Breakfast", "lunch": "Lunch", "dinner": "Dinner", "snack": "Snack"}
 
-    def __init__(self, daily_nutrition: DailyNutritionService | None = None, session_factory: Any = get_session) -> None:
+    def __init__(self, daily_nutrition: DailyNutritionService | None = None, session_factory: Any = get_session,
+                 user_id: int | None = None) -> None:
         self.daily_nutrition = daily_nutrition or DailyNutritionService()
         self.session_factory = session_factory
+        self.user_id = user_id
 
     def save_resolved(self, original_input: str, resolved_items: list[dict[str, Any]], meal_type: str | None = None,
                       log_date: date | None = None, request_id: str | None = None) -> dict[str, Any]:
+        if self.user_id is not None and self.user_id < 0:
+            raise ValueError("Complete a personal profile before saving food estimates.")
         day = log_date or date.today()
         resolved = [item for item in resolved_items if item.get("resolved") is True]
         if not resolved:
@@ -33,10 +37,16 @@ class MealLoggingService:
         resolved_meal_type = self._meal_type(meal_type, original_input)
         idempotency_key = request_id or str(uuid4())
         with self.session_factory() as session:
-            existing = session.scalar(select(FoodLog).where(FoodLog.idempotency_key == idempotency_key).limit(1))
+            existing_query = select(FoodLog).where(FoodLog.idempotency_key == idempotency_key)
+            if self.user_id is not None:
+                existing_query = existing_query.where(FoodLog.user_id == self.user_id)
+            existing = session.scalar(existing_query.limit(1))
             if existing is not None:
                 logger.info("Duplicate meal submission ignored.")
-                entries = list(session.scalars(select(FoodLog).where(FoodLog.meal_id == existing.meal_id)))
+                entries_query = select(FoodLog).where(FoodLog.meal_id == existing.meal_id)
+                if self.user_id is not None:
+                    entries_query = entries_query.where(FoodLog.user_id == self.user_id)
+                entries = list(session.scalars(entries_query))
                 return self._response(existing.meal_id or "", entries, day, duplicate=True)
             meal_id = str(uuid4())
             entries = [self._to_log(item, meal_id, original_input, resolved_meal_type, day, idempotency_key)
@@ -69,7 +79,8 @@ class MealLoggingService:
             raise ValueError("Resolved food has an invalid quantity.")
         sources = item.get("sources", [])
         urls = [source["url"] for source in sources if isinstance(source, dict) and isinstance(source.get("url"), str)]
-        return FoodLog(meal_id=meal_id, original_input=original_input.strip(), meal_type=meal_type, food_name=name,
+        review_note = str(item.get("review_note", "")).strip()
+        return FoodLog(user_id=self.user_id, meal_id=meal_id, original_input=original_input.strip(), meal_type=meal_type, food_name=name,
                        quantity=float(quantity) if quantity is not None else None, unit=item.get("unit"),
                        calories=float(nutrients["calories"]), protein_g=float(nutrients["protein_g"]),
                        carbs_g=float(nutrients["carbs_g"]), fat_g=float(nutrients["fat_g"]),
@@ -77,7 +88,8 @@ class MealLoggingService:
                        validation_status=str(item.get("validation_status", "")) or None,
                        confidence=str(item.get("confidence", "")) or None,
                        confidence_score=float(item["confidence_score"]) if isinstance(item.get("confidence_score"), (int, float)) else None,
-                       source_urls=json.dumps(urls), idempotency_key=idempotency_key, log_date=day)
+                       source_urls=json.dumps(urls), notes=review_note or None,
+                       idempotency_key=idempotency_key, log_date=day)
 
     @classmethod
     def _meal_type(cls, explicit: str | None, original_input: str) -> str:
@@ -95,4 +107,4 @@ class MealLoggingService:
                 "calories": entry.calories, "protein_g": entry.protein_g, "carbs_g": entry.carbs_g,
                 "fat_g": entry.fat_g, "source_type": entry.source_type, "validation_status": entry.validation_status,
                 "confidence": entry.confidence, "confidence_score": entry.confidence_score,
-                "source_urls": json.loads(entry.source_urls or "[]")}
+                "source_urls": json.loads(entry.source_urls or "[]"), "notes": entry.notes}

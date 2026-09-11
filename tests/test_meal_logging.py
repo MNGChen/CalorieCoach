@@ -11,6 +11,7 @@ from sqlalchemy.pool import StaticPool
 from database.database import Base
 from database.models import FoodLog
 from services.daily_nutrition_service import DailyNutritionService
+from services.demo_data_service import DemoDataError, DemoDataService
 from services.meal_logging_service import MealLoggingService
 from services.meal_service import MealService
 from services.nutrition_service import NutritionService
@@ -114,6 +115,51 @@ class MealLoggingTests(unittest.TestCase):
         self.assertEqual(self.daily.summary(self.day)["consumed"]["calories"], 80.0)
         self.meals.delete_log(first_log_id)
         self.assertEqual(self.daily.summary(self.day)["consumed"]["calories"], 0.0)
+
+    def test_custom_targets_override_calculated_targets(self) -> None:
+        profile = self.nutrition.save_profile(custom_calorie_goal=2100, custom_protein_goal_g=150,
+                                               custom_carbs_goal_g=225, custom_fat_goal_g=70)
+        targets = self.nutrition.targets(profile)
+        self.assertEqual((targets.calorie_goal, targets.protein_goal_g, targets.carbs_goal_g, targets.fat_goal_g),
+                         (2100, 150, 225, 70))
+
+    def test_review_note_is_retained_with_source_provenance(self) -> None:
+        item = self.resolved()
+        item["validation_status"] = "user_reviewed"
+        item["review_note"] = "Nutrition estimate reviewed or adjusted by user before saving."
+        response = self.logger.save_resolved("Egg", [item], log_date=self.day)
+        saved = response["meal"]["items"][0]
+        self.assertEqual(saved["validation_status"], "user_reviewed")
+        self.assertEqual(saved["notes"], item["review_note"])
+        self.assertEqual(saved["source_urls"], ["https://example.com/facts"])
+
+    def test_username_scopes_profiles_and_food_logs(self) -> None:
+        alice_nutrition = NutritionService(self.session_factory, username="alice")
+        bob_nutrition = NutritionService(self.session_factory, username="bob")
+        alice = alice_nutrition.save_profile(age=30, gender="Female", height_cm=165, weight_kg=60,
+                                             activity_level="Lightly Active", goal="Maintenance")
+        bob = bob_nutrition.save_profile(age=31, gender="Male", height_cm=180, weight_kg=82,
+                                         activity_level="Moderately Active", goal="Muscle Gain")
+        alice_meals = MealService(self.session_factory, user_id=alice.id)
+        bob_meals = MealService(self.session_factory, user_id=bob.id)
+        alice_meals.add_log(food_name="Alice meal", meal_type="Lunch", calories=400, protein_g=20,
+                            carbs_g=40, fat_g=10, log_date=self.day)
+        bob_meals.add_log(food_name="Bob meal", meal_type="Dinner", calories=800, protein_g=50,
+                          carbs_g=70, fat_g=25, log_date=self.day)
+        self.assertEqual([item.food_name for item in alice_meals.logs(self.day, self.day)], ["Alice meal"])
+        self.assertEqual([item.food_name for item in bob_meals.logs(self.day, self.day)], ["Bob meal"])
+        self.assertEqual(alice_nutrition.daily_totals(self.day)["calories"], 400.0)
+        self.assertEqual(bob_nutrition.daily_totals(self.day)["calories"], 800.0)
+
+    def test_demo_data_creates_a_two_week_history_only_for_empty_username(self) -> None:
+        nutrition = NutritionService(self.session_factory, username="demo-user")
+        response = DemoDataService(nutrition, MealService(self.session_factory, user_id=-1)).load()
+        profile = nutrition.get_profile()
+        self.assertIsNotNone(profile)
+        self.assertEqual((response["meals_added"], response["weights_added"]), (42, 5))
+        self.assertEqual(len(MealService(self.session_factory, user_id=profile.id).logs()), 42)  # type: ignore[union-attr]
+        with self.assertRaises(DemoDataError):
+            DemoDataService(nutrition, MealService(self.session_factory, user_id=profile.id)).load()  # type: ignore[union-attr]
 
 
 if __name__ == "__main__":

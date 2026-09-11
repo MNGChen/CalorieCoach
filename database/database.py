@@ -24,6 +24,7 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     _migrate_food_logs()
+    _migrate_user_ownership()
     # Keep the bundled food catalogue local and queryable by backend services.
     from database.food_seed import seed_food_database
 
@@ -43,6 +44,44 @@ def _migrate_food_logs() -> None:
         for name, definition in required_columns.items():
             if name not in existing:
                 connection.execute(text(f"ALTER TABLE food_logs ADD COLUMN {name} {definition}"))
+    required_profile_columns = {
+        "custom_calorie_goal": "FLOAT", "custom_protein_goal_g": "FLOAT",
+        "custom_carbs_goal_g": "FLOAT", "custom_fat_goal_g": "FLOAT",
+        "health_notice_acknowledged": "BOOLEAN DEFAULT 0",
+    }
+    existing_profile = {column["name"] for column in inspect(engine).get_columns("user_profiles")}
+    with engine.begin() as connection:
+        for name, definition in required_profile_columns.items():
+            if name not in existing_profile:
+                connection.execute(text(f"ALTER TABLE user_profiles ADD COLUMN {name} {definition}"))
+
+
+def _migrate_user_ownership() -> None:
+    """Preserve the original local profile while introducing per-profile data ownership."""
+    with engine.begin() as connection:
+        profile_columns = {column["name"] for column in inspect(engine).get_columns("user_profiles")}
+        if "username" not in profile_columns:
+            connection.execute(text("ALTER TABLE user_profiles ADD COLUMN username VARCHAR(40)"))
+            connection.execute(text("UPDATE user_profiles SET username = 'legacy' "
+                                    "WHERE id = (SELECT MIN(id) FROM user_profiles WHERE username IS NULL)"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_user_profiles_username "
+                                "ON user_profiles(username)"))
+        for table in ("food_logs", "weight_entries"):
+            columns = {column["name"] for column in inspect(engine).get_columns(table)}
+            if "user_id" not in columns:
+                connection.execute(text(f"ALTER TABLE {table} ADD COLUMN user_id INTEGER"))
+        # The existing one-person data becomes the legacy profile's data.
+        connection.execute(text("UPDATE food_logs SET user_id = (SELECT id FROM user_profiles WHERE username = 'legacy' LIMIT 1) WHERE user_id IS NULL"))
+        connection.execute(text("UPDATE weight_entries SET user_id = (SELECT id FROM user_profiles WHERE username = 'legacy' LIMIT 1) WHERE user_id IS NULL"))
+    unique_constraints = inspect(engine).get_unique_constraints("weight_entries")
+    old_global_unique = any(set(item.get("column_names") or []) == {"recorded_on"} for item in unique_constraints)
+    if old_global_unique:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE weight_entries RENAME TO weight_entries_legacy"))
+            Base.metadata.tables["weight_entries"].create(connection)
+            connection.execute(text("INSERT INTO weight_entries (id, user_id, weight_kg, recorded_on, notes) "
+                                    "SELECT id, user_id, weight_kg, recorded_on, notes FROM weight_entries_legacy"))
+            connection.execute(text("DROP TABLE weight_entries_legacy"))
 
 
 @contextmanager
