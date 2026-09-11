@@ -13,7 +13,7 @@ A local nutrition-tracking application built with Streamlit. It helps users log 
 - **Explainable estimates**: Source URLs, validation status, confidence, and user-review markers remain attached to saved logs.
 - **Daily progress and AI coaching**: Database services calculate daily totals; the AI receives those deterministic totals as context for guidance.
 - **Progress page**: Shows 7-, 30-, and 90-day calorie, protein, and weight trends.
-- **Meal planner**: Generates a daily menu based on a calorie target and dietary preference. Suggestions are never logged automatically.
+- **AI meal recommendations**: The homepage assistant suggests a next meal from today's remaining nutrition budget. Suggestions are never logged automatically.
 - **Demo data**: A new username can load a 14-day sample history containing 42 meal logs and 5 weight entries.
 
 ## Quick start
@@ -39,7 +39,7 @@ GEMINI_API_KEY=your_google_gemini_api_key
 GEMINI_MODEL=gemini-2.0-flash
 ```
 
-Without an API key, manual logging, the local food catalogue, progress tracking, and demo data remain available. AI parsing, coaching, web nutrition extraction, and meal planning require a valid key and network connection.
+Without an API key, manual logging, the local food catalogue, progress tracking, and demo data remain available. AI parsing, coaching, web nutrition extraction, and meal recommendations require a valid key and network connection.
 
 ### 3. Run the app
 
@@ -77,7 +77,6 @@ CalorieCoach/
 ├── app.py                         # Main dashboard, username workspace, logs, coach, assistant
 ├── pages/
 │   ├── Progress.py                 # Food/weight trends and history
-│   └── Meal_Planner.py             # Daily meal-plan generation
 ├── database/
 │   ├── models.py                   # UserProfile, FoodLog, WeightEntry, Food ORM models
 │   ├── database.py                 # SQLite engine, transactions, additive migrations
@@ -204,7 +203,7 @@ User description
 
 The AI does not perform final aggregation, serving arithmetic, or database writes. Deterministic services handle those responsibilities. User-adjusted estimates are marked as `user_reviewed` while their original source metadata remains available.
 
-### Daily summaries, coaching, and meal planning
+### Daily summaries, coaching, and meal recommendations
 
 ```text
 FoodLog for the active user

@@ -78,6 +78,8 @@ coach = NutritionCoachService(daily_nutrition=daily_nutrition, nutrition=nutriti
 if not profile:
     empty_state(f"👋 Welcome, {active_username}. Complete your profile below to create your personal nutrition workspace.")
 else:
+    if saved_message := st.session_state.pop("food_log_saved_message", None):
+        st.success(saved_message)
     summary = daily_nutrition.summary(date.today())
     targets = nutrition.targets(profile)
     totals = summary["consumed"]
@@ -107,7 +109,7 @@ else:
     else:
         empty_state("🍽️ No food logged today. Add an entry manually or use AI nutrition lookup.")
 
-tab_log, tab_assistant, tab_profile = st.tabs(["Food log", "AI Assistant", "Profile"])
+tab_assistant, tab_log, tab_profile = st.tabs(["✨ AI Assistant", "Food log", "Profile"])
 with tab_profile:
     section_header("Set your targets", "Calculated recommendations are a starting point; you may also use targets from a qualified professional.")
     st.info("CalorieCoach provides general adult nutrition estimates, not medical care. If you are pregnant, under 18, have an eating disorder, a medical condition, or take medication that affects diet, set goals with a qualified clinician.")
@@ -162,9 +164,13 @@ with tab_log:
             else:
                 st.session_state.pop("food_analysis_result", None)
                 try:
-                    with st.spinner("Checking local foods, then searching the web only if needed..."):
-                        st.session_state["food_analysis_result"] = FoodAnalysisService().analyze(description)
+                    with st.status("Starting nutrition lookup…", expanded=True) as status:
+                        def show_food_status(message: str) -> None:
+                            status.write(message)
+                            status.update(label=message, state="running")
+                        st.session_state["food_analysis_result"] = FoodAnalysisService().analyze(description, show_food_status)
                         st.session_state["food_analysis_request_id"] = str(uuid4())
+                        status.update(label="Nutrition lookup complete", state="complete")
                 except (AIServiceError, ValueError) as exc:
                     st.error(str(exc))
         result = st.session_state.get("food_analysis_result")
@@ -221,7 +227,11 @@ with tab_log:
                         del st.session_state["food_analysis_result"]
                         st.session_state.pop("food_analysis_request_id", None)
                         daily = response["daily_summary"]
-                        st.success(f"Saved {len(response['meal']['items'])} food(s). Today's consumed calories: {daily['consumed']['calories']:.0f} kcal.")
+                        st.session_state["food_log_saved_message"] = (
+                            f"Saved {len(response['meal']['items'])} food(s). "
+                            f"Today's consumed calories: {daily['consumed']['calories']:.0f} kcal."
+                        )
+                        st.rerun()
                     except (TypeError, ValueError) as exc:
                         st.error(f"Could not save the estimates: {exc}")
     with manual_log_tab:
@@ -240,7 +250,8 @@ with tab_log:
                 elif not name.strip(): st.error("Please enter a food or meal name.")
                 else:
                     meals.add_log(food_name=name.strip(), meal_type=meal_type, calories=calories, protein_g=protein, carbs_g=carbs, fat_g=fat, log_date=log_day)
-                    st.success("Meal logged."); st.rerun()
+                    st.session_state["food_log_saved_message"] = "Meal logged."
+                    st.rerun()
     section_header("Today's full log", "Sources, validation status, and confidence remain available for review.")
     logs = meals.logs(start=date.today(), end=date.today())
     if logs:
@@ -280,13 +291,14 @@ with tab_log:
         empty_state("There are no food logs to edit today.")
 
 with tab_assistant:
-    section_header("AI Assistant", "Log food, check your progress, ask for coaching, or get a meal recommendation in one place.")
-    st.caption("Quick prompts")
+    section_header("Your AI nutrition assistant", "Ask about today's progress, get coaching, log a meal, or receive a next-meal suggestion based on your remaining daily budget.")
+    st.info("Start here for personalised help. Recommendations use your profile and today's logged food; they are suggestions, not medical advice.")
+    st.caption("What would you like help with?")
     quick_prompts = [
         ("🍽️ Log food", "I ate chicken rice and an iced coffee."),
         ("📊 Today's progress", "How many calories do I have left today?"),
         ("💪 Nutrition advice", "Do I need more protein today?"),
-        ("✨ Recommend a meal", "What should I eat for dinner?"),
+        ("✨ Recommend my next meal", "What should I eat for dinner?"),
     ]
     quick_columns = st.columns(4)
     for column, (label, prompt) in zip(quick_columns, quick_prompts):
@@ -294,17 +306,22 @@ with tab_assistant:
             st.session_state["assistant_message"] = prompt
     assistant_message = st.text_area(
         "Ask CalorieCoach",
-        placeholder="For example: What should I eat for dinner?",
+        placeholder="For example: I had chicken rice for lunch — what should I eat for dinner?",
         key="assistant_message",
     )
     if st.button("Send message", type="primary"):
         if not assistant_message.strip(): st.error("Enter a message first.")
         else:
             try:
-                with st.spinner("Routing your request..."):
+                with st.status("Starting your request…", expanded=True) as status:
+                    def show_assistant_status(message: str) -> None:
+                        status.write(message)
+                        status.update(label=message, state="running")
                     st.session_state["assistant_response"] = NutritionOrchestrator(
-                        meal_logging=meal_logging, daily=daily_nutrition, coach=coach
+                        meal_logging=meal_logging, daily=daily_nutrition, coach=coach,
+                        on_status=show_assistant_status,
                     ).handle(assistant_message)
+                    status.update(label="Response ready", state="complete")
             except Exception:
                 st.error("The assistant is currently unavailable.")
     if response := st.session_state.get("assistant_response"):

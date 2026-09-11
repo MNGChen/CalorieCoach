@@ -4,6 +4,7 @@ import streamlit as st
 from database.database import init_db
 from services.meal_service import MealService
 from services.nutrition_service import NutritionService
+from services.progress_analysis_service import ProgressAnalysisError, ProgressAnalysisService
 from utils.ui import apply_app_shell, empty_state, page_header, section_header
 
 st.set_page_config(page_title="Progress | CalorieCoach", page_icon="📈", layout="wide")
@@ -40,6 +41,30 @@ food, weights = service.progress_data(days)
 if food.empty and weights.empty:
     empty_state("📈 No trend data yet. Log food or weight to see your changes here.")
 else:
+    section_header("AI trend analysis", "Get a practical interpretation of the selected period's nutrition and weight data.")
+    if st.button("✨ Analyze this period", type="primary", use_container_width=True):
+        try:
+            target = NutritionService(username=active_username).targets(profile)
+            with st.spinner("Reviewing your trend..."):
+                st.session_state["progress_analysis"] = ProgressAnalysisService().analyze(
+                    food, weights, {"calories": float(target.calorie_goal), "protein_g": float(target.protein_goal_g),
+                                    "carbs_g": float(target.carbs_goal_g), "fat_g": float(target.fat_goal_g)},
+                    profile.goal, days,
+                )
+                st.session_state["progress_analysis_days"] = days
+        except (ProgressAnalysisError, ValueError):
+            st.error("AI trend analysis is currently unavailable. Check your Gemini API key and try again.")
+    analysis = st.session_state.get("progress_analysis")
+    if analysis and st.session_state.get("progress_analysis_days") == days:
+        st.info(analysis.summary)
+        insight, next_step = st.columns(2)
+        with insight:
+            st.caption("Key insight")
+            st.write(analysis.insight)
+        with next_step:
+            st.caption("Next step")
+            st.write(analysis.next_step)
+        st.caption(f"Watch out: {analysis.watch_out}")
     if not food.empty:
         section_header("Nutrition trends", "Your daily calorie and protein history.")
         avg_calories, avg_protein = food["Calories"].mean(), food["Protein (g)"].mean()

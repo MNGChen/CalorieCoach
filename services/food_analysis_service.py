@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from database.database import get_session
@@ -28,8 +29,10 @@ class FoodAnalysisService:
         self.validator = validator or NutritionValidationService()
         self.session_factory = session_factory
 
-    def analyze(self, message: str) -> list[dict[str, Any]]:
+    def analyze(self, message: str, on_status: Callable[[str], None] | None = None) -> list[dict[str, Any]]:
+        self._notify(on_status, "Understanding the foods and portions you entered…")
         inputs = self.parser.parse(message)
+        self._notify(on_status, "Checking your foods against the local nutrition database…")
         results: list[dict[str, Any]] = []
         with self.session_factory() as session:
             for input_food in inputs:
@@ -37,10 +40,12 @@ class FoodAnalysisService:
                 food = self.search.search(session, input_food.name)
                 if food is None:
                     logger.info("Local DB search: no reliable match. Using web fallback.")
-                    results.append(self._resolve_web(input_food))
+                    self._notify(on_status, f"No local match for {input_food.name}; checking trusted web sources…")
+                    results.append(self._resolve_web(input_food, on_status))
                     continue
                 nutrition = self.calculator.calculate(food, input_food)
                 logger.info("Local DB search: matched %s", food.name)
+                self._notify(on_status, f"Found {food.name} in the local nutrition database.")
                 results.append({"input_food": input_food.name, "quantity": input_food.quantity, "unit": input_food.unit,
                                 "matched": True, "resolved": True,
                                 "source_type": "local_database", "validation_status": "accepted",
@@ -49,9 +54,10 @@ class FoodAnalysisService:
                     "calories": nutrition.calories, "protein_g": nutrition.protein_g,
                     "carbs_g": nutrition.carbs_g, "fat_g": nutrition.fat_g,
                 }})
+        self._notify(on_status, "Nutrition estimates are ready for your review.")
         return results
 
-    def _resolve_web(self, input_food: Any) -> dict[str, Any]:
+    def _resolve_web(self, input_food: Any, on_status: Callable[[str], None] | None = None) -> dict[str, Any]:
         try:
             results = self.web_search.search_food_web(input_food.name)
             logger.info("Web results retrieved: %s", len(results))
@@ -62,11 +68,13 @@ class FoodAnalysisService:
             return self._unresolved(input_food.name, "Unable to find nutrition search results.")
 
         try:
+            self._notify(on_status, f"Extracting nutrition facts for {input_food.name} from the search results…")
             extracted_sources = self.web_extractor.extract(input_food.name, results)
         except WebNutritionExtractionError as exc:
             logger.info("Web nutrition extraction did not resolve the food.")
             return self._unresolved(input_food.name, str(exc))
 
+        self._notify(on_status, "Comparing sources and checking the estimate…")
         stats, decision = self.validator.validate(input_food.name, extracted_sources)
         source_details = self._source_details(extracted_sources, stats)
         values = (stats.median_calories, stats.median_protein_g, stats.median_carbs_g, stats.median_fat_g)
@@ -114,3 +122,8 @@ class FoodAnalysisService:
     def _unresolved(input_food: str, reason: str) -> dict[str, Any]:
         return {"input_food": input_food, "quantity": None, "unit": None, "matched": False, "resolved": False, "source_type": "web",
                 "matched_food": None, "sources": [], "reason": reason}
+
+    @staticmethod
+    def _notify(callback: Callable[[str], None] | None, message: str) -> None:
+        if callback:
+            callback(message)

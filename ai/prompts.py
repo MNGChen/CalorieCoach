@@ -34,6 +34,12 @@ user's nutrition progress and give neutral, practical strategy-level guidance. P
 any exceeded target. Do not diagnose, prescribe treatment, shame the user, or generate exact recipes/food portions.
 Return only the required structured response."""
 
+PROGRESS_ANALYSIS_PROMPT = """You are a general nutrition coaching agent reviewing a user's nutrition and weight
+trend for a selected period. The supplied trend context is the sole source of truth: do not recalculate, invent
+measurements, diagnose, prescribe treatment, shame the user, or make guarantees about weight change. Give neutral,
+practical and sustainable observations. If data is sparse, say so plainly and recommend more consistent logging.
+Return only the required structured response."""
+
 MEAL_PLANNING_PROMPT = """You are a meal planning agent. Choose only food_id values from the supplied local candidates and practical portions. Do not calculate, report, or invent nutrition totals. Respect the supplied strategy and target, avoid recent repetition where practical, and return a meal name, foods, and concise reason. This is a suggestion, not a logged meal."""
 
 MEAL_PLAN_PROMPT = """Create a one-day meal plan matching the request. Return ONLY valid JSON with this shape:
