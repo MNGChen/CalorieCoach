@@ -26,27 +26,27 @@ init_db()
 
 with st.sidebar:
     st.markdown("## 🥗 CalorieCoach")
-    st.caption("你的每日营养记录空间")
+    st.caption("Your daily nutrition workspace")
     st.divider()
     active_username = st.session_state.get("active_username")
     if active_username:
-        st.success(f"当前用户：{active_username}")
-        if st.button("切换用户", use_container_width=True):
+        st.success(f"Active user: {active_username}")
+        if st.button("Switch user", use_container_width=True):
             st.session_state.pop("active_username", None)
             st.rerun()
     else:
-        username = st.text_input("用户名", placeholder="例如：ming")
-        if st.button("进入我的空间", type="primary", use_container_width=True):
+        username = st.text_input("Username", placeholder="e.g. ming")
+        if st.button("Open my workspace", type="primary", use_container_width=True):
             candidate = username.strip().casefold()
             if not re.fullmatch(r"[a-z0-9_.-]{3,40}", candidate):
-                st.error("用户名须为 3–40 个字符，可使用字母、数字、点、下划线或连字符。")
+                st.error("Username must be 3–40 characters and may use letters, numbers, dots, underscores, or hyphens.")
             else:
                 st.session_state["active_username"] = candidate
                 st.rerun()
-        if st.button("加载演示数据", use_container_width=True, help="为这个新用户名创建 14 天示例饮食与体重记录。"):
+        if st.button("Load demo data", type="primary", use_container_width=True, help="Create 14 days of sample meal and weight history for this new username."):
             candidate = username.strip().casefold()
             if not re.fullmatch(r"[a-z0-9_.-]{3,40}", candidate):
-                st.error("请先输入有效用户名，再加载演示数据。")
+                st.error("Enter a valid username before loading demo data.")
             else:
                 demo_nutrition = NutritionService(username=candidate)
                 try:
@@ -56,16 +56,16 @@ with st.sidebar:
                 except DemoDataError as exc:
                     st.error(str(exc))
     st.divider()
-    st.markdown("**使用建议**")
-    st.caption("先完善资料，再记录饮食；每次 AI 估算都可在保存前核对与修改。")
+    st.markdown("**How to use it**")
+    st.caption("Complete your profile first, then log food. You can review and adjust every AI estimate before saving.")
     st.divider()
-    st.caption("营养数据为估算值，不替代专业医疗建议。")
+    st.caption("Nutrition values are estimates and do not replace medical advice.")
 
-page_header("今天，吃得更明白", "记录每一餐、看懂营养进度，并按你的目标持续调整。", "DAILY NUTRITION")
+page_header("Make today's nutrition easier to understand", "Log each meal, review your progress, and make steady adjustments toward your goal.", "DAILY NUTRITION")
 
 active_username = st.session_state.get("active_username")
 if not active_username:
-    empty_state("👤 请先在左侧输入用户名，进入或创建你的个人营养空间。")
+    empty_state("👤 Enter a username in the sidebar to open or create your personal nutrition workspace.")
     st.stop()
 
 nutrition = NutritionService(username=active_username)
@@ -76,7 +76,7 @@ daily_nutrition = DailyNutritionService(nutrition)
 meal_logging = MealLoggingService(daily_nutrition=daily_nutrition, user_id=owner_id)
 coach = NutritionCoachService(daily_nutrition=daily_nutrition, nutrition=nutrition, meals=meals)
 if not profile:
-    empty_state(f"👋 欢迎，{active_username}。先完成下方的个人资料以创建你的独立营养空间。")
+    empty_state(f"👋 Welcome, {active_username}. Complete your profile below to create your personal nutrition workspace.")
 else:
     summary = daily_nutrition.summary(date.today())
     targets = nutrition.targets(profile)
@@ -85,9 +85,9 @@ else:
         totals["calories"], targets.calorie_goal, totals["protein_g"], totals["carbs_g"], totals["fat_g"],
         targets.protein_goal_g, targets.carbs_goal_g, targets.fat_goal_g,
     )
-    st.caption(f"BMI {targets.bmi} · 基础代谢 {targets.bmr} kcal · TDEE {targets.tdee} kcal · 目标：{profile.goal}")
+    st.caption(f"BMI {targets.bmi} · BMR {targets.bmr} kcal · TDEE {targets.tdee} kcal · Goal: {profile.goal}")
     today_logs = meals.logs(start=date.today(), end=date.today())
-    section_header("今日记录", "一眼掌握今天已吃了什么；需要时可在下方完整编辑。")
+    section_header("Today's log", "See what you have eaten today and edit any entry below when needed.")
     if today_logs:
         st.dataframe(
             [{"Meal": item.meal_type, "Food": item.food_name, "Quantity": f"{item.quantity:g} {item.unit or ''}" if item.quantity else "",
@@ -105,11 +105,11 @@ else:
                     meals.delete_log(item.id)
                     st.rerun()
     else:
-        empty_state("🍽️ 今天还没有记录。可以手动添加，或用 AI 查找食物营养。")
+        empty_state("🍽️ No food logged today. Add an entry manually or use AI nutrition lookup.")
 
-tab_profile, tab_log, tab_coach, tab_assistant = st.tabs(["个人资料", "饮食记录", "AI 教练", "智能助手"])
+tab_log, tab_assistant, tab_profile = st.tabs(["Food log", "AI Assistant", "Profile"])
 with tab_profile:
-    section_header("设置你的目标", "计算建议只是起点，你也可以使用专业人士给出的自定义目标。")
+    section_header("Set your targets", "Calculated recommendations are a starting point; you may also use targets from a qualified professional.")
     st.info("CalorieCoach provides general adult nutrition estimates, not medical care. If you are pregnant, under 18, have an eating disorder, a medical condition, or take medication that affects diet, set goals with a qualified clinician.")
     with st.form("profile_form"):
         left, right = st.columns(2)
@@ -149,25 +149,8 @@ with tab_profile:
                     st.error(str(exc))
 
 with tab_log:
-    section_header("记录这一餐", "手动输入适合已知营养数据；AI 查询适合快速估算。")
-    manual_log_tab, ai_analysis_tab = st.tabs(["手动添加", "AI 营养查询"])
-    with manual_log_tab:
-        with st.form("manual_log"):
-            cols = st.columns(3)
-            name = cols[0].text_input("Food / meal")
-            meal_type = cols[1].selectbox("Meal type", ["Breakfast", "Lunch", "Dinner", "Snack"])
-            log_day = cols[2].date_input("Date", date.today())
-            calories = cols[0].number_input("Calories", 0.0, 5000.0)
-            protein = cols[1].number_input("Protein (g)", 0.0, 500.0)
-            carbs = cols[2].number_input("Carbs (g)", 0.0, 1000.0)
-            fat = st.number_input("Fat (g)", 0.0, 500.0)
-            if st.form_submit_button("Add to log"):
-                if not profile:
-                    st.error("请先完成个人资料，再添加饮食记录。")
-                elif not name.strip(): st.error("Please enter a food or meal name.")
-                else:
-                    meals.add_log(food_name=name.strip(), meal_type=meal_type, calories=calories, protein_g=protein, carbs_g=carbs, fat_g=fat, log_date=log_day)
-                    st.success("Meal logged."); st.rerun()
+    section_header("Log this meal", "Use manual entry when nutrition is known, or AI lookup for a quick estimate.")
+    ai_analysis_tab, manual_log_tab = st.tabs(["✨ AI nutrition lookup", "Add manually"])
     with ai_analysis_tab:
         description = st.text_area("What did you eat?", placeholder="I ate 200g chicken breast and one egg", key="log_food_description")
         ai_columns = st.columns(2)
@@ -241,7 +224,24 @@ with tab_log:
                         st.success(f"Saved {len(response['meal']['items'])} food(s). Today's consumed calories: {daily['consumed']['calories']:.0f} kcal.")
                     except (TypeError, ValueError) as exc:
                         st.error(f"Could not save the estimates: {exc}")
-    section_header("今日完整记录", "来源、验证状态与置信度会一直保留，方便回看。")
+    with manual_log_tab:
+        with st.form("manual_log"):
+            cols = st.columns(3)
+            name = cols[0].text_input("Food / meal")
+            meal_type = cols[1].selectbox("Meal type", ["Breakfast", "Lunch", "Dinner", "Snack"])
+            log_day = cols[2].date_input("Date", date.today())
+            calories = cols[0].number_input("Calories", 0.0, 5000.0)
+            protein = cols[1].number_input("Protein (g)", 0.0, 500.0)
+            carbs = cols[2].number_input("Carbs (g)", 0.0, 1000.0)
+            fat = st.number_input("Fat (g)", 0.0, 500.0)
+            if st.form_submit_button("Add to log"):
+                if not profile:
+                    st.error("Complete your profile before adding food logs.")
+                elif not name.strip(): st.error("Please enter a food or meal name.")
+                else:
+                    meals.add_log(food_name=name.strip(), meal_type=meal_type, calories=calories, protein_g=protein, carbs_g=carbs, fat_g=fat, log_date=log_day)
+                    st.success("Meal logged."); st.rerun()
+    section_header("Today's full log", "Sources, validation status, and confidence remain available for review.")
     logs = meals.logs(start=date.today(), end=date.today())
     if logs:
         st.dataframe([{"ID": x.id, "Meal": x.meal_type, "Food": x.food_name, "Quantity": f"{x.quantity:g} {x.unit or ''}" if x.quantity else "",
@@ -252,7 +252,7 @@ with tab_log:
         if st.button("Delete selected log"):
             meals.delete_log(delete_id)
             st.rerun()
-        st.subheader("编辑一条记录")
+        st.subheader("Edit a food log")
         edit_id = st.selectbox("Food to edit", [x.id for x in logs], key="edit_log_id", format_func=lambda ident: next(f"{x.food_name} ({x.calories:.0f} kcal)" for x in logs if x.id == ident))
         editing = next(x for x in logs if x.id == edit_id)
         with st.form("edit_food_log"):
@@ -277,44 +277,53 @@ with tab_log:
                     st.success("Food log updated.")
                     st.rerun()
     else:
-        empty_state("还没有可编辑的今日记录。")
-
-with tab_coach:
-    section_header("问问 AI 教练", "建议会基于你的今日摄入和剩余目标生成。")
-    question = st.text_area("Ask your nutrition coach", placeholder="What should I eat next?", key="coach_question")
-    if st.button("Get coaching advice"):
-        st.session_state.pop("coach_answer", None)
-        try:
-            with st.spinner("Reviewing today's nutrition progress..."):
-                st.session_state["coach_answer"] = coach.get_nutrition_advice(question)
-        except ValueError as exc:
-            st.error(str(exc))
-    if answer := st.session_state.get("coach_answer"):
-        if not answer["available"]:
-            st.info(answer["reason"])
-        else:
-            st.subheader("Coach's advice")
-            st.write(answer["summary"])
-            st.write(answer["recommendation"])
-            st.caption(answer["reasoning_summary"])
-            if answer["avoid_or_limit"]:
-                st.write("Consider limiting: " + ", ".join(answer["avoid_or_limit"]))
-            budget = answer["target_for_next_meal"]
-            st.caption(f"Remaining daily budget: {budget['calories']:.0f} kcal · {budget['protein_g']:.0f}g protein · {budget['carbs_g']:.0f}g carbs · {budget['fat_g']:.0f}g fat")
+        empty_state("There are no food logs to edit today.")
 
 with tab_assistant:
-    section_header("智能营养助手", "可识别记录饮食、查看进度或推荐下一餐。")
-    assistant_message = st.text_area("Ask CalorieCoach", placeholder="What should I eat for dinner?", key="v1_assistant_message")
-    if st.button("Send to V1 Assistant"):
+    section_header("AI Assistant", "Log food, check your progress, ask for coaching, or get a meal recommendation in one place.")
+    st.caption("Quick prompts")
+    quick_prompts = [
+        ("🍽️ Log food", "I ate chicken rice and an iced coffee."),
+        ("📊 Today's progress", "How many calories do I have left today?"),
+        ("💪 Nutrition advice", "Do I need more protein today?"),
+        ("✨ Recommend a meal", "What should I eat for dinner?"),
+    ]
+    quick_columns = st.columns(4)
+    for column, (label, prompt) in zip(quick_columns, quick_prompts):
+        if column.button(label, key=f"quick_prompt_{label}", use_container_width=True):
+            st.session_state["assistant_message"] = prompt
+    assistant_message = st.text_area(
+        "Ask CalorieCoach",
+        placeholder="For example: What should I eat for dinner?",
+        key="assistant_message",
+    )
+    if st.button("Send message", type="primary"):
         if not assistant_message.strip(): st.error("Enter a message first.")
         else:
             try:
                 with st.spinner("Routing your request..."):
-                    st.session_state["v1_assistant_response"] = NutritionOrchestrator(
+                    st.session_state["assistant_response"] = NutritionOrchestrator(
                         meal_logging=meal_logging, daily=daily_nutrition, coach=coach
                     ).handle(assistant_message)
             except Exception:
                 st.error("The assistant is currently unavailable.")
-    if response := st.session_state.get("v1_assistant_response"):
+    if response := st.session_state.get("assistant_response"):
+        st.subheader("Assistant response")
         st.write(response["message"])
-        st.json(response["data"])
+        data = response["data"]
+        advice = data.get("coach", data)
+        if advice.get("available"):
+            if recommendation := advice.get("recommendation"):
+                st.write(recommendation)
+            if advice.get("avoid_or_limit"):
+                st.caption("Consider limiting: " + ", ".join(advice["avoid_or_limit"]))
+            if budget := advice.get("target_for_next_meal"):
+                st.caption(f"Remaining daily budget: {budget['calories']:.0f} kcal · {budget['protein_g']:.0f}g protein · {budget['carbs_g']:.0f}g carbs · {budget['fat_g']:.0f}g fat")
+        if meal_plan := data.get("meal_plan"):
+            st.caption("Suggested foods")
+            st.dataframe(meal_plan.get("foods", []), use_container_width=True, hide_index=True)
+        if summary := data.get("daily_summary"):
+            with st.expander("View daily nutrition summary"):
+                st.json(summary)
+        with st.expander("View response details"):
+            st.json(data)

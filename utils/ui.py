@@ -16,7 +16,20 @@ def apply_app_shell() -> None:
       [data-testid="stMetric"] { background:var(--cc-surface); border:1px solid var(--cc-line); border-radius:16px; padding:1rem; box-shadow:0 4px 16px rgba(23, 57, 47, .05); }
       [data-testid="stTabs"] button { font-weight:650; padding:0.8rem 1rem; }
       [data-testid="stTabs"] button[aria-selected="true"] { color:var(--cc-green); }
-      .stButton > button { border-radius:10px; font-weight:650; min-height:2.6rem; }
+      .stButton > button, [data-testid="stFormSubmitButton"] > button { border-radius:10px; font-weight:650; min-height:2.6rem; }
+      .stButton > button[kind="secondary"], [data-testid="stFormSubmitButton"] > button[kind="secondary"] { background:#ffffff; border:1px solid #a8c8bd; color:#145543; }
+      .stButton > button[kind="secondary"]:hover, [data-testid="stFormSubmitButton"] > button[kind="secondary"]:hover { background:#edf8f3; border-color:#197a62; color:#0d4938; }
+      .stButton > button[kind="primary"], [data-testid="stFormSubmitButton"] > button[kind="primary"] { background:#197a62; border-color:#197a62; color:#ffffff; }
+      .stButton > button[kind="primary"]:hover, [data-testid="stFormSubmitButton"] > button[kind="primary"]:hover { background:#145e4c; border-color:#145e4c; color:#ffffff; }
+      [data-testid="stSidebar"] .stButton > button[kind="secondary"] { background:rgba(255,255,255,.12); border-color:rgba(255,255,255,.55); }
+      [data-testid="stSidebar"] .stButton > button[kind="secondary"], [data-testid="stSidebar"] .stButton > button[kind="secondary"] * { color:#ffffff !important; }
+      [data-testid="stSidebar"] .stButton > button[kind="secondary"]:hover { background:rgba(255,255,255,.22); border-color:#ffffff; }
+      [data-testid="stSidebar"] .stButton > button[kind="primary"] { background:#d8f2e7; border-color:#d8f2e7; }
+      [data-testid="stSidebar"] .stButton > button[kind="primary"], [data-testid="stSidebar"] .stButton > button[kind="primary"] * { color:#104235 !important; }
+      [data-testid="stSidebar"] .stButton > button[kind="primary"]:hover { background:#ffffff; border-color:#ffffff; }
+      [data-testid="stSidebar"] input { background:#ffffff !important; border-color:#b9d8cf !important; color:#163b31 !important; caret-color:#163b31 !important; }
+      [data-testid="stSidebar"] input::placeholder { color:#5f746d !important; opacity:1; }
+      [data-testid="stSidebar"] input:focus { border-color:#ffffff !important; box-shadow:0 0 0 1px #ffffff !important; }
       .stDataFrame { border:1px solid var(--cc-line); border-radius:12px; overflow:hidden; }
       .cc-hero { background:linear-gradient(120deg,#123f35,#197a62); border-radius:22px; color:white; padding:1.7rem 1.8rem; margin:0 0 1.35rem; box-shadow:0 14px 30px rgba(20,60,52,.16); }
       .cc-kicker { font-size:.78rem; font-weight:750; letter-spacing:.09em; opacity:.78; text-transform:uppercase; margin-bottom:.45rem; }

@@ -19,7 +19,7 @@ class DemoDataService:
 
     def load(self) -> dict[str, Any]:
         if self.nutrition.get_profile() is not None:
-            raise DemoDataError("这个用户名已有资料；为避免覆盖真实记录，不能加载演示数据。")
+            raise DemoDataError("This username already has a profile. Demo data cannot be loaded to avoid overwriting real records.")
         profile = self.nutrition.save_profile(
             age=30, gender="Female", height_cm=165, weight_kg=64.0,
             activity_level="Lightly Active", goal="Weight Loss", health_notice_acknowledged=True,
