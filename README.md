@@ -82,11 +82,14 @@ CalorieCoach/
 │   ├── models.py                   # UserProfile, FoodLog, WeightEntry, Food ORM models
 │   ├── database.py                 # SQLite engine, transactions, additive migrations
 │   └── food_seed.py                # Imports the bundled Excel food catalogue
+├── mcp_server/
+│   └── nutrition_server.py          # Read-only MCP entry point for the shared food catalogue
 ├── services/
 │   ├── nutrition_service.py        # Profile, targets, and user-scoped daily totals
 │   ├── meal_service.py             # User-scoped food/weight CRUD and progress queries
 │   ├── meal_logging_service.py     # Atomic persistence of validated food estimates
 │   ├── demo_data_service.py        # Safe two-week demo-history generator
+│   ├── nutrition_mcp_tools.py       # Read-only tool implementations used by the MCP server
 │   ├── food_* / web_*              # Food parsing, search, and web nutrition evidence extraction
 │   ├── nutrition_*                 # Routing, validation, statistics, coaching, orchestration
 │   ├── portion_calculator.py       # Deterministic serving calculations
@@ -148,6 +151,35 @@ flowchart TD
     class R,FP,WE,VA,CA,MPA agent;
     class FS,PC,WS,NV,ML,LD,DP,CQ,RM,MC,MPC,GR deterministic;
 ```
+
+### Local Nutrition MCP Server
+
+CalorieCoach includes a small, read-only MCP server for the shared local food catalogue. It deliberately does not expose personal profiles, food logs, weight entries, or any write operation.
+
+| Tool | Purpose |
+| --- | --- |
+| `search_local_food(query)` | Find the best catalogue match and its typical-serving nutrition. |
+| `lookup_food_nutrition(query, quantity, unit)` | Match a food name and return nutrition in one call; grams scale the portion. |
+
+`lookup_food_nutrition` is the preferred tool for AI agents. It accepts a food name directly, so agents do **not** need to search for or retain an internal `food_id` first.
+
+```text
+lookup_food_nutrition(
+  query="Hainanese chicken rice",
+  quantity=250,
+  unit="g"
+)
+```
+
+The result includes the matched catalogue food, serving size, calories, protein, carbohydrates, fat, source, and whether the quantity was scaled. When no reliable local match exists, it returns `found: false` instead of inventing nutrition data.
+
+Run it over the local stdio transport:
+
+```powershell
+.\.venv\Scripts\python.exe mcp_server\nutrition_server.py
+```
+
+The server is intentionally independent from the Streamlit UI, so a future `NutritionMcpProvider` can call it as an external fallback without exposing user data.
 
 ### User workspaces and data isolation
 

@@ -12,6 +12,7 @@ from services.nutrition_validation_agent import NutritionValidationAgent, Nutrit
 from services.nutrition_validation_models import NutritionSource, ValidationDecision
 from services.nutrition_validation_service import NutritionValidationService
 from services.portion_calculator import PortionCalculator
+from services.nutrition_mcp_tools import NutritionCatalogTools
 from services.web_nutrition_extractor import WebNutritionExtractionError, WebNutritionExtractor
 from services.web_search import WebSearchError, WebSearchResult
 
@@ -61,6 +62,22 @@ class FoodSearchTests(unittest.TestCase):
 
     def test_food_not_found(self) -> None:
         self.assertIsNone(self.service.search_foods(self.foods, "unknown food"))
+
+
+class NutritionMcpToolTests(unittest.TestCase):
+    def test_food_summary_contains_only_catalogue_fields(self) -> None:
+        food = Food(1, "Chicken breast", "chicken breast")
+        result = NutritionCatalogTools._food_summary(food)
+        self.assertEqual(result["name"], "Chicken breast")
+        self.assertEqual(result["typical_serving"], "100 g")
+        self.assertNotIn("user_id", result)
+
+    def test_lookup_food_nutrition_returns_no_match_without_a_food_id(self) -> None:
+        class NoMatchSearch:
+            def search(self, _session, _query): return None
+        tools = NutritionCatalogTools(search=NoMatchSearch())
+        # The empty local session is not used because the search stub returns immediately.
+        self.assertEqual(tools.lookup_food_nutrition("unknown food")["found"], False)
 
 
 class NutritionStatisticsTests(unittest.TestCase):
