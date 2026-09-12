@@ -79,6 +79,13 @@ class NutritionCoachServiceTests(unittest.TestCase):
         self.assertEqual([context["user_question"] for context in agent.contexts],
                          ["Do I need more protein?", "How am I doing today?"])
 
+    def test_relevant_assistant_memory_is_included_in_coach_context(self) -> None:
+        service, agent = self._service(summary())
+        memory = {"summary": "Earlier conversation context", "recent_messages": [],
+                  "memories": [{"category": "restriction", "content": "No dairy."}]}
+        service.get_nutrition_advice("What should I eat next?", memory_context=memory)
+        self.assertEqual(agent.contexts[0]["conversation_memory"], memory)
+
     def test_missing_target_returns_without_calling_agent(self) -> None:
         state = {"date": "2026-09-11", "target": None, "consumed": {"calories": 0.0, "protein_g": 0.0, "carbs_g": 0.0, "fat_g": 0.0}, "remaining": None}
         service, agent = self._service(state, goal=None)

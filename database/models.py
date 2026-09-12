@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, Float, Index, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Float, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from database.database import Base
@@ -67,6 +67,52 @@ class WeightEntry(Base):
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     __table_args__ = (Index("ix_weight_entries_user_recorded_on", "user_id", "recorded_on", unique=True),)
+
+
+class ConversationMessage(Base):
+    """A user-scoped assistant message used for the short-term context window."""
+
+    __tablename__ = "conversation_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    session_id: Mapped[str] = mapped_column(String(36), index=True)
+    role: Mapped[str] = mapped_column(String(20))
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (Index("ix_conversation_messages_user_session_created", "user_id", "session_id", "created_at"),)
+
+
+class ConversationSession(Base):
+    """A bounded summary of messages that no longer fit in the short-term window."""
+
+    __tablename__ = "conversation_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    session_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class UserMemory(Base):
+    """Explicit, durable preferences and constraints for one user workspace."""
+
+    __tablename__ = "user_memories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    category: Mapped[str] = mapped_column(String(40), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    normalized_content: Mapped[str] = mapped_column(String(500))
+    importance: Mapped[int] = mapped_column(Integer, default=1)
+    source: Mapped[str] = mapped_column(String(30), default="conversation")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (UniqueConstraint("user_id", "category", "normalized_content", name="uq_user_memory_content"),)
 
 
 class Food(Base):

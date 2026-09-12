@@ -12,6 +12,7 @@ A local nutrition-tracking application built with Streamlit. It helps users log 
 - **Nutrition lookup**: Searches the bundled food catalogue first, then falls back to web evidence extraction and validation when necessary.
 - **Explainable estimates**: Source URLs, validation status, confidence, and user-review markers remain attached to saved logs.
 - **Daily progress and AI coaching**: Database services calculate daily totals; the AI receives those deterministic totals as context for guidance.
+- **Assistant memory**: A user-scoped recent conversation window, bounded session summary, and reviewable long-term food preferences/constraints make follow-up coaching more useful without treating AI memory as nutrition fact.
 - **Progress page**: Shows 7-, 30-, and 90-day calorie, protein, and weight trends.
 - **AI meal recommendations**: The homepage assistant suggests a next meal from today's remaining nutrition budget. Suggestions are never logged automatically.
 - **Demo data**: A new username can load a 14-day sample history containing 42 meal logs and 5 weight entries.
@@ -26,20 +27,20 @@ py -3.11 -m venv .venv
 pip install -r requirements.txt
 ```
 
-### 2. Configure AI (optional)
+### 2. Configure OpenAI (optional)
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Add a Gemini API key to `.env`:
+Add an OpenAI API key to `.env`:
 
 ```env
-GEMINI_API_KEY=your_google_gemini_api_key
-GEMINI_MODEL=gemini-2.0-flash
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_MODEL=gpt-6-astra
 ```
 
-Without an API key, manual logging, the local food catalogue, progress tracking, and demo data remain available. AI parsing, coaching, web nutrition extraction, and meal recommendations require a valid key and network connection.
+Without an API key, manual logging, the local food catalogue, progress tracking, and demo data remain available. AI parsing, coaching, web nutrition extraction, meal recommendations, and trend analysis require a valid key and network connection.
 
 ### 3. Run the app
 
@@ -60,6 +61,8 @@ Existing user: load that username's profile and history
 Log food manually or use AI lookup → review/edit the estimate → save
     ↓
 Calculate user-scoped daily totals → dashboard, progress page, and AI coach
+    ↓
+Ask a follow-up question → recent conversation context and saved preferences inform the response
 ```
 
 ### Loading demo data
@@ -84,6 +87,7 @@ CalorieCoach/
 ├── mcp_server/
 │   └── nutrition_server.py          # Read-only MCP entry point for the shared food catalogue
 ├── services/
+│   ├── memory_service.py           # User-scoped conversation window, summary, and reviewable preferences
 │   ├── nutrition_service.py        # Profile, targets, and user-scoped daily totals
 │   ├── meal_service.py             # User-scoped food/weight CRUD and progress queries
 │   ├── meal_logging_service.py     # Atomic persistence of validated food estimates
@@ -95,12 +99,13 @@ CalorieCoach/
 │   └── meal_planning_*.py          # Local candidate selection and meal recommendation
 ├── ai/
 │   ├── prompts.py                  # Auditable AI prompts
-│   └── nutrition_ai.py             # Gemini REST client
+│   ├── openai_client.py             # OpenAI Responses API structured-output adapter
+│   └── nutrition_ai.py              # OpenAI Responses API text client
 ├── utils/
 │   ├── helpers.py                  # Dashboard metrics and progress bars
 │   └── ui.py                       # Shared visual theme, headers, and empty states
 ├── data/food_300.xlsx              # Initial local food catalogue
-└── tests/                          # Pipeline, logging, coaching, and router tests
+└── tests/                          # Pipeline, logging, coaching, router, and memory tests
 ```
 
 ## Architecture
@@ -111,7 +116,8 @@ The V1 Assistant sends each free-text request through `NutritionOrchestrator`. P
 
 ```mermaid
 flowchart TD
-    U[User message] --> R[NutritionRouter<br/>AI agent]
+    U[User message] --> MEM[MemoryService<br/>Recent context + saved preferences]
+    MEM --> R[NutritionRouter<br/>AI agent]
     R --> I{Intent}
 
     I -- Log food --> FP[FoodInputParser<br/>AI agent]
@@ -144,11 +150,12 @@ flowchart TD
     CA --> OUT
     MPC --> OUT
     GR --> OUT
+    OUT --> SM[MemoryService<br/>Store turn + update bounded summary]
 
     classDef agent fill:#ede9fe,stroke:#7c3aed,color:#2e1065;
     classDef deterministic fill:#dcfce7,stroke:#16a34a,color:#14532d;
     class R,FP,WE,VA,CA,MPA agent;
-    class FS,PC,WS,NV,ML,LD,DP,CQ,RM,MC,MPC,GR deterministic;
+    class FS,PC,WS,NV,ML,LD,DP,CQ,RM,MC,MPC,GR,MEM,SM deterministic;
 ```
 
 ### Local Nutrition MCP Server
@@ -188,6 +195,17 @@ When an older single-user database is upgraded, its existing records are retaine
 
 **Privacy boundary:** a username is not authentication. Anyone who knows a username can enter that workspace. Do not use this mode for public deployment or sensitive health data; production use requires authentication and proper access control.
 
+### Assistant memory
+
+Assistant memory improves follow-up questions such as “what about dinner?” while keeping nutrition records separate from conversational context.
+
+- **Short-term memory** keeps the latest eight messages for the active assistant session. Once that window is exceeded, the older portion is stored as a bounded session summary.
+- **Long-term memory** stores only user-scoped preferences, restrictions, routines, goal context, and communication preferences. It can be created manually from **Profile → Assistant memory** or captured from clear, durable statements in a conversation.
+- **Review and deletion** are available in the Profile tab. Removing a memory does not change food logs, weight entries, profile targets, or previous assistant messages.
+- **Nutrition facts remain deterministic.** Profile fields, food logs, daily totals, and meal calculations remain the source of truth; the model only interprets that data together with the small relevant memory context.
+
+Each assistant turn is stored only after a profile exists, and every message, summary, and saved memory is filtered by the active `user_id`. A new browser session starts a new short-term conversation window, while approved long-term memories remain available to that user's workspace.
+
 ### Food analysis and evidence validation
 
 ```text
@@ -195,7 +213,7 @@ User description
   → FoodInputParser: extracts food items and explicitly stated portions only
   → FoodSearchService: searches the local food catalogue
   → Match found: PortionCalculator scales the nutrition values
-  → No match: DuckDuckGo search → Gemini extracts facts from supplied search evidence
+  → No match: DuckDuckGo search → OpenAI extracts facts from supplied search evidence
   → NutritionNormalizer + NutritionStatistics: normalize servings and exclude outliers
   → NutritionValidationAgent: accepts, marks uncertain, or rejects based on evidence
   → User reviews/edits the result → MealLoggingService saves provenance and status
@@ -211,11 +229,11 @@ FoodLog for the active user
   → DailyNutritionService.summary()
   → consumed / target / remaining calories and macros
   ├── Dashboard and Progress page
-  ├── NutritionCoachService: AI interprets deterministic context only
+  ├── NutritionCoachService: AI interprets deterministic data plus a bounded memory context
   └── MealPlanningService: chooses local Food candidates and calculates nutrition deterministically
 ```
 
-`NutritionOrchestrator` powers the V1 assistant by routing requests to food logging, daily progress, coaching, meal recommendations, or general guidance. Paths that read or write user data receive the active user's service instances.
+`NutritionOrchestrator` powers the V1 assistant by loading the active user's memory context, routing requests to food logging, daily progress, coaching, meal recommendations, or general guidance, then saving the completed turn. Paths that read or write user data receive the active user's service instances.
 
 ## Data model
 
@@ -225,3 +243,6 @@ FoodLog for the active user
 | `food_logs` | Individual food entries, nutrients, sources, and validation metadata | `user_id → user_profiles.id` |
 | `weight_entries` | Daily weight and notes | Unique `user_id + recorded_on` |
 | `foods` | Shared local food catalogue | Not user-owned |
+| `conversation_messages` | User and assistant messages for the current short-term context window | `user_id → user_profiles.id` |
+| `conversation_sessions` | Bounded summary of older messages in a conversation session | `user_id → user_profiles.id` |
+| `user_memories` | Reviewable preferences, constraints, routines, goals, and communication style | `user_id → user_profiles.id` |

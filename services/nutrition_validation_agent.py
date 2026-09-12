@@ -4,12 +4,10 @@ from __future__ import annotations
 import json
 from typing import Any, Literal
 
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, ConfigDict, Field
 
 from ai.prompts import NUTRITION_VALIDATION_PROMPT
-from config import GEMINI_API_KEY, GEMINI_MODEL
+from ai.openai_client import OpenAIStructuredChain, OpenAIServiceError
 from services.nutrition_validation_models import ValidationDecision
 
 
@@ -34,14 +32,11 @@ class NutritionValidationAgent:
 
     @staticmethod
     def _build_chain() -> Any:
-        if not GEMINI_API_KEY:
-            raise NutritionValidationAgentError("GEMINI_API_KEY is not configured.")
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", NUTRITION_VALIDATION_PROMPT),
-            ("human", "Validation evidence:\n{evidence}"),
-        ])
-        llm = ChatGoogleGenerativeAI(model=GEMINI_MODEL, google_api_key=GEMINI_API_KEY, temperature=0)
-        return prompt | llm.with_structured_output(ValidationAgentSchema)
+        try:
+            return OpenAIStructuredChain(NUTRITION_VALIDATION_PROMPT, "Validation evidence:\n{evidence}",
+                                         ValidationAgentSchema)
+        except OpenAIServiceError as exc:
+            raise NutritionValidationAgentError(str(exc)) from exc
 
     def validate(self, evidence: dict[str, Any]) -> ValidationDecision:
         try:

@@ -53,7 +53,7 @@ else:
                 )
                 st.session_state["progress_analysis_days"] = days
         except (ProgressAnalysisError, ValueError):
-            st.error("AI trend analysis is currently unavailable. Check your Gemini API key and try again.")
+            st.error("AI trend analysis is currently unavailable. Check your OpenAI API key and try again.")
     analysis = st.session_state.get("progress_analysis")
     if analysis and st.session_state.get("progress_analysis_days") == days:
         st.info(analysis.summary)

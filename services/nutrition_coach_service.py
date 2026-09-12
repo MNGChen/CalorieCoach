@@ -22,7 +22,8 @@ class NutritionCoachService:
         self.meals = meals or MealService()
         self.agent = agent or NutritionCoachAgent()
 
-    def get_nutrition_advice(self, question: str, day: date | None = None) -> dict[str, Any]:
+    def get_nutrition_advice(self, question: str, day: date | None = None,
+                             memory_context: dict[str, Any] | None = None) -> dict[str, Any]:
         if not question.strip():
             raise ValueError("Please enter a nutrition question.")
         selected_day = day or date.today()
@@ -31,13 +32,15 @@ class NutritionCoachService:
         if profile is None or summary["target"] is None:
             return {"available": False, "reason": "Set up your profile to receive daily nutrition guidance.",
                     "daily_summary": summary}
-        context = self._context(question, profile.goal, summary, selected_day)
+        context = self._context(question, profile.goal, summary, selected_day, memory_context)
         logger.info("Coach request received. Goal: %s. Calorie progress: %.0f%%. Protein progress: %.0f%%.",
                     profile.goal, context["progress"]["calories"] * 100, context["progress"]["protein_g"] * 100)
         try:
             advice = self.agent.advise(context)
         except NutritionCoachAgentError:
-            logger.warning("Nutrition coach agent failed to provide valid guidance.")
+            # The UI remains deliberately generic, while application logs retain
+            # the chained provider/parsing exception for support diagnostics.
+            logger.warning("Nutrition coach agent failed to provide valid guidance.", exc_info=True)
             return {"available": False, "reason": "Nutrition coaching is currently unavailable.",
                     "daily_summary": summary}
         logger.info("Coach response validated.")
@@ -48,11 +51,12 @@ class NutritionCoachService:
                 "target_for_next_meal": {key: max(0, value) for key, value in summary["remaining"].items()},
                 "daily_summary": summary}
 
-    def _context(self, question: str, goal: str, summary: dict[str, Any], selected_day: date) -> dict[str, Any]:
+    def _context(self, question: str, goal: str, summary: dict[str, Any], selected_day: date,
+                 memory_context: dict[str, Any] | None = None) -> dict[str, Any]:
         target, consumed = summary["target"], summary["consumed"]
         progress = {key: round(consumed[key] / target[key], 3) if target[key] else 0.0 for key in target}
         recent = self.meals.logs(start=selected_day, end=selected_day)[:3]
         return {"user_goal": goal, "daily_target": target, "consumed": consumed, "remaining": summary["remaining"],
                 "progress": progress, "recent_meals": [{"food": item.food_name, "meal_type": item.meal_type,
                                                           "calories": item.calories} for item in recent],
-                "user_question": question.strip()}
+                "user_question": question.strip(), "conversation_memory": memory_context or {}}

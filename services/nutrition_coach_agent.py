@@ -4,13 +4,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, ConfigDict, Field
 
+from ai.openai_client import OpenAIStructuredChain, OpenAIServiceError
 from ai.prompts import NUTRITION_COACH_PROMPT
-from config import GEMINI_API_KEY, GEMINI_MODEL
-
 
 class NutritionCoachAgentError(RuntimeError):
     pass
@@ -34,14 +31,10 @@ class NutritionCoachAgent:
 
     @staticmethod
     def _build_chain() -> Any:
-        if not GEMINI_API_KEY:
-            raise NutritionCoachAgentError("GEMINI_API_KEY is not configured.")
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", NUTRITION_COACH_PROMPT),
-            ("human", "Coach context:\n{context}"),
-        ])
-        llm = ChatGoogleGenerativeAI(model=GEMINI_MODEL, google_api_key=GEMINI_API_KEY, temperature=0.2)
-        return prompt | llm.with_structured_output(CoachAdviceSchema)
+        try:
+            return OpenAIStructuredChain(NUTRITION_COACH_PROMPT, "Coach context:\n{context}", CoachAdviceSchema)
+        except OpenAIServiceError as exc:
+            raise NutritionCoachAgentError(str(exc)) from exc
 
     def advise(self, context: dict[str, Any]) -> CoachAdviceSchema:
         try:

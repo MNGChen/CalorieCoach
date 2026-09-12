@@ -4,13 +4,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ai.nutrition_ai import AIServiceError
+from ai.openai_client import OpenAIStructuredChain, OpenAIServiceError
 from ai.prompts import FOOD_INPUT_PARSE_PROMPT
-from config import GEMINI_API_KEY, GEMINI_MODEL
 
 
 @dataclass(frozen=True)
@@ -46,14 +44,10 @@ class FoodInputParser:
 
     @staticmethod
     def _build_chain() -> Any:
-        if not GEMINI_API_KEY:
-            raise AIServiceError("GEMINI_API_KEY is not configured.")
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", FOOD_INPUT_PARSE_PROMPT),
-            ("human", "User message: {food_description}"),
-        ])
-        llm = ChatGoogleGenerativeAI(model=GEMINI_MODEL, google_api_key=GEMINI_API_KEY, temperature=0)
-        return prompt | llm.with_structured_output(FoodParseResult)
+        try:
+            return OpenAIStructuredChain(FOOD_INPUT_PARSE_PROMPT, "User message: {food_description}", FoodParseResult)
+        except OpenAIServiceError as exc:
+            raise AIServiceError(str(exc)) from exc
 
     def parse(self, message: str) -> list[FoodInput]:
         if not message.strip():
@@ -61,7 +55,7 @@ class FoodInputParser:
         try:
             data = self.chain.invoke({"food_description": message})
         except Exception as exc:
-            raise AIServiceError("Food parsing is currently unavailable. Check your Gemini API key and connection, then try again.") from exc
+            raise AIServiceError("Food parsing is currently unavailable. Check your OpenAI API key and connection, then try again.") from exc
         return self.validate(data)
 
     @staticmethod

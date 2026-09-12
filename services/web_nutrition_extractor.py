@@ -3,12 +3,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, ConfigDict, Field
 
 from ai.prompts import WEB_NUTRITION_EXTRACTION_PROMPT
-from config import GEMINI_API_KEY, GEMINI_MODEL
+from ai.openai_client import OpenAIStructuredChain, OpenAIServiceError
 from services.nutrition_validation_models import NutritionSource
 from services.web_search import WebSearchResult
 
@@ -38,21 +36,19 @@ class WebNutritionExtractionSchema(BaseModel):
 
 
 class WebNutritionExtractor:
-    """Uses Gemini only to extract supported facts, retaining each cited source."""
+    """Uses OpenAI only to extract supported facts, retaining each cited source."""
 
     def __init__(self, chain: Any | None = None) -> None:
         self.chain = chain or self._build_chain()
 
     @staticmethod
     def _build_chain() -> Any:
-        if not GEMINI_API_KEY:
-            raise WebNutritionExtractionError("GEMINI_API_KEY is not configured.")
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", WEB_NUTRITION_EXTRACTION_PROMPT),
-            ("human", "Food: {food_name}\n\nSearch results:\n{search_results}"),
-        ])
-        llm = ChatGoogleGenerativeAI(model=GEMINI_MODEL, google_api_key=GEMINI_API_KEY, temperature=0)
-        return prompt | llm.with_structured_output(WebNutritionExtractionSchema)
+        try:
+            return OpenAIStructuredChain(WEB_NUTRITION_EXTRACTION_PROMPT,
+                                         "Food: {food_name}\n\nSearch results:\n{search_results}",
+                                         WebNutritionExtractionSchema)
+        except OpenAIServiceError as exc:
+            raise WebNutritionExtractionError(str(exc)) from exc
 
     def extract(self, food_name: str, results: list[WebSearchResult]) -> list[NutritionSource]:
         if not results:

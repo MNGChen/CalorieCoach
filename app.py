@@ -17,6 +17,7 @@ from services.daily_nutrition_service import DailyNutritionService
 from services.demo_data_service import DemoDataError, DemoDataService
 from services.nutrition_coach_service import NutritionCoachService
 from services.nutrition_orchestrator import NutritionOrchestrator
+from services.memory_service import MemoryService
 from utils.helpers import render_metric_cards
 from utils.ui import apply_app_shell, empty_state, page_header, section_header
 
@@ -75,6 +76,10 @@ meals = MealService(user_id=owner_id)
 daily_nutrition = DailyNutritionService(nutrition)
 meal_logging = MealLoggingService(daily_nutrition=daily_nutrition, user_id=owner_id)
 coach = NutritionCoachService(daily_nutrition=daily_nutrition, nutrition=nutrition, meals=meals)
+memory_session_key = f"assistant_memory_session_{active_username}"
+if memory_session_key not in st.session_state:
+    st.session_state[memory_session_key] = str(uuid4())
+assistant_memory = MemoryService(user_id=owner_id, session_id=st.session_state[memory_session_key])
 if not profile:
     empty_state(f"👋 Welcome, {active_username}. Complete your profile below to create your personal nutrition workspace.")
 else:
@@ -149,6 +154,30 @@ with tab_profile:
                     st.rerun()
                 except (ValueError, TypeError) as exc:
                     st.error(str(exc))
+    if profile:
+        with st.expander("Assistant memory", expanded=False):
+            st.caption("The assistant only uses these saved preferences and constraints alongside your current nutrition data. You can edit or remove them at any time.")
+            stored_memories = assistant_memory.list_memories()
+            if stored_memories:
+                for memory in stored_memories:
+                    left, right = st.columns([6, 1])
+                    left.write(f"**{memory.category.replace('_', ' ').title()}** — {memory.content}")
+                    if right.button("Remove", key=f"delete_memory_{memory.id}"):
+                        assistant_memory.delete_memory(memory.id)
+                        st.rerun()
+            else:
+                st.caption("No long-term assistant memories saved yet.")
+            with st.form("add_assistant_memory", clear_on_submit=True):
+                memory_category = st.selectbox("Memory type", ["diet_preference", "restriction", "routine", "goal_context", "communication_style"],
+                                               format_func=lambda value: value.replace("_", " ").title())
+                memory_content = st.text_input("Add a preference or constraint", placeholder="e.g. I prefer quick, dairy-free dinners.")
+                if st.form_submit_button("Save memory"):
+                    try:
+                        assistant_memory.add_memory(memory_category, memory_content)
+                        st.success("Assistant memory saved.")
+                        st.rerun()
+                    except ValueError as exc:
+                        st.error(str(exc))
 
 with tab_log:
     section_header("Log this meal", "Use manual entry when nutrition is known, or AI lookup for a quick estimate.")
@@ -319,6 +348,7 @@ with tab_assistant:
                         status.update(label=message, state="running")
                     st.session_state["assistant_response"] = NutritionOrchestrator(
                         meal_logging=meal_logging, daily=daily_nutrition, coach=coach,
+                        memory=assistant_memory,
                         on_status=show_assistant_status,
                     ).handle(assistant_message)
                     status.update(label="Response ready", state="complete")
@@ -328,6 +358,8 @@ with tab_assistant:
         st.subheader("Assistant response")
         st.write(response["message"])
         data = response["data"]
+        if saved_memories := data.get("saved_memories"):
+            st.caption("Saved to assistant memory: " + "; ".join(item["content"] for item in saved_memories))
         advice = data.get("coach", data)
         if advice.get("available"):
             if recommendation := advice.get("recommendation"):

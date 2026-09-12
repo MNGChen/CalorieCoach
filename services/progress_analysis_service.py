@@ -5,12 +5,10 @@ import json
 from typing import Any
 
 import pandas as pd
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, ConfigDict, Field
 
+from ai.openai_client import OpenAIStructuredChain, OpenAIServiceError
 from ai.prompts import PROGRESS_ANALYSIS_PROMPT
-from config import GEMINI_API_KEY, GEMINI_MODEL
 
 
 class ProgressAnalysisError(RuntimeError):
@@ -44,14 +42,11 @@ class ProgressAnalysisService:
 
     @staticmethod
     def _build_chain() -> Any:
-        if not GEMINI_API_KEY:
-            raise ProgressAnalysisError("GEMINI_API_KEY is not configured.")
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", PROGRESS_ANALYSIS_PROMPT),
-            ("human", "Trend context:\n{context}"),
-        ])
-        llm = ChatGoogleGenerativeAI(model=GEMINI_MODEL, google_api_key=GEMINI_API_KEY, temperature=0.2)
-        return prompt | llm.with_structured_output(ProgressAnalysisSchema)
+        try:
+            return OpenAIStructuredChain(PROGRESS_ANALYSIS_PROMPT, "Trend context:\n{context}",
+                                         ProgressAnalysisSchema)
+        except OpenAIServiceError as exc:
+            raise ProgressAnalysisError(str(exc)) from exc
 
     @staticmethod
     def _context(food: pd.DataFrame, weights: pd.DataFrame, target: dict[str, float], goal: str,

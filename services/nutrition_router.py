@@ -1,10 +1,8 @@
 """Structured intent router with deterministic shortcuts for common nutrition requests."""
 from __future__ import annotations
 from typing import Any, Literal
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, ConfigDict, Field
-from config import GEMINI_API_KEY, GEMINI_MODEL
+from ai.openai_client import OpenAIStructuredChain, OpenAIServiceError
 
 class RouterError(RuntimeError): pass
 class IntentSchema(BaseModel):
@@ -15,12 +13,16 @@ class NutritionRouter:
     def __init__(self, chain: Any|None=None): self.chain=chain or self._build()
     @staticmethod
     def _build():
-        if not GEMINI_API_KEY: raise RouterError("GEMINI_API_KEY is not configured.")
-        prompt=ChatPromptTemplate.from_messages([("system","Classify nutrition messages into exactly one intent: log_food, daily_progress, nutrition_question, meal_recommendation, general_nutrition_chat. Return structured output."),("human","Message: {message}")])
-        return prompt | ChatGoogleGenerativeAI(model=GEMINI_MODEL,google_api_key=GEMINI_API_KEY,temperature=0).with_structured_output(IntentSchema)
+        try:
+            return OpenAIStructuredChain(
+                "Classify nutrition messages into exactly one intent: log_food, daily_progress, nutrition_question, meal_recommendation, general_nutrition_chat. Return structured output.",
+                "Message: {message}", IntentSchema,
+            )
+        except OpenAIServiceError as exc:
+            raise RouterError(str(exc)) from exc
     def route(self,message:str)->IntentSchema:
         lower=message.casefold()
-        if any(x in lower for x in ("what should i eat","what can i eat","recommend a meal","for dinner","for lunch")): return IntentSchema(intent="meal_recommendation",confidence=1)
+        if any(x in lower for x in ("what should i eat","what can i eat","recommend a meal","for dinner","for lunch", "mcdonald's", "mcdonalds", "麦当劳")): return IntentSchema(intent="meal_recommendation",confidence=1)
         if any(x in lower for x in ("how am i doing","calories left","calorie remaining","today's progress")): return IntentSchema(intent="daily_progress",confidence=1)
         if any(x in lower for x in ("do i need more protein","more carbs","more fat","protein today")): return IntentSchema(intent="nutrition_question",confidence=1)
         if any(x in lower for x in ("i ate","i had","i drank","log ")): return IntentSchema(intent="log_food",confidence=1)

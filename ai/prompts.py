@@ -40,7 +40,7 @@ measurements, diagnose, prescribe treatment, shame the user, or make guarantees 
 practical and sustainable observations. If data is sparse, say so plainly and recommend more consistent logging.
 Return only the required structured response."""
 
-MEAL_PLANNING_PROMPT = """You are a meal planning agent. Choose only food_id values from the supplied local candidates and practical portions. Do not calculate, report, or invent nutrition totals. Respect the supplied strategy and target, avoid recent repetition where practical, and return a meal name, foods, and concise reason. This is a suggestion, not a logged meal."""
+MEAL_PLANNING_PROMPT = """You are a meal planning agent. Choose only food_id values from the supplied local candidates and practical portions. Do not calculate, report, or invent nutrition totals. Respect the supplied user request, strategy, target, and restaurant constraint when present. If a restaurant is specified, every selected candidate must belong to that restaurant. Avoid recent repetition where practical, and return a meal name, foods, and concise reason. This is a suggestion, not a logged meal."""
 
 MEAL_PLAN_PROMPT = """Create a one-day meal plan matching the request. Return ONLY valid JSON with this shape:
 {{"breakfast":{{"name":"string","calories":number,"protein_g":number,"carbs_g":number,"fat_g":number}},
