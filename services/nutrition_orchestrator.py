@@ -12,14 +12,15 @@ from services.meal_planning_service import MealPlanningService, RestaurantMenuUn
 from services.nutrition_coach_service import NutritionCoachService
 from services.nutrition_router import NutritionRouter, RouterError
 from services.memory_service import MemoryService
+from services.restaurant_menu_search_service import RestaurantMenuSearchService
 
 logger=logging.getLogger(__name__)
 class NutritionAgentState(TypedDict, total=False):
     message:str; intent:str; trace:list[str]; response:dict[str,Any]; resolved_foods:list[dict[str,Any]]; errors:list[str]; memory_context:dict[str,Any]
 class NutritionOrchestrator:
-    def __init__(self, router=None, food_analysis=None, meal_logging=None, daily=None, coach=None, planner=None, memory: MemoryService | None = None,
+    def __init__(self, router=None, food_analysis=None, meal_logging=None, daily=None, coach=None, planner=None, restaurant_search=None, memory: MemoryService | None = None,
                  on_status: Callable[[str], None] | None = None):
-        self.router=router or NutritionRouter(); self.food=food_analysis or FoodAnalysisService(); self.logging=meal_logging or MealLoggingService(); self.daily=daily or DailyNutritionService(); self.coach=coach or NutritionCoachService(daily_nutrition=self.daily); self.planner=planner or MealPlanningService(); self.graph=self._build()
+        self.router=router or NutritionRouter(); self.food=food_analysis or FoodAnalysisService(); self.logging=meal_logging or MealLoggingService(); self.daily=daily or DailyNutritionService(); self.coach=coach or NutritionCoachService(daily_nutrition=self.daily); self.planner=planner or MealPlanningService(); self.restaurant_search=restaurant_search or RestaurantMenuSearchService(); self.graph=self._build()
         self.memory = memory
         self.on_status = on_status
     def _build(self):
@@ -68,7 +69,13 @@ class NutritionOrchestrator:
             self._notify("Choosing foods that fit your remaining budget…")
             plan=self.planner.recommend(advice, user_request=s["message"]); return {"response":{"intent":"meal_recommendation","message":f"Suggested: {plan['meal_name']}","data":{"coach":advice,"meal_plan":plan},"trace":s["trace"]+["daily_tracking","coach_agent","meal_planning_agent","portion_calculator"]}}
         except RestaurantMenuUnavailable as exc:
-            return {"response":{"intent":"meal_recommendation","message":f"I do not have verified {exc.restaurant} menu items in the local catalogue, so I will not substitute an unrelated dish.","data":{"coach":advice,"restaurant_menu_unavailable":exc.restaurant},"trace":s["trace"]+["daily_tracking","coach_agent","restaurant_catalogue_unavailable"]}}
+            self._notify(f"Searching official {exc.restaurant} menu pages…")
+            menu = self.restaurant_search.search_menu(exc.restaurant, s["message"])
+            message = (f"I found official {exc.restaurant} menu options, but not verified nutrition values for them. "
+                       "Review the official links before ordering." if menu["available"]
+                       else f"I do not have verified {exc.restaurant} menu items locally, and {menu['reason']} "
+                       "Here is an AI-generated general ordering strategy, not a verified restaurant menu recommendation.")
+            return {"response":{"intent":"meal_recommendation","message":message,"data":{"restaurant_menu":menu,"restaurant_menu_unavailable":exc.restaurant,"coach":advice,"llm_fallback":not menu["available"]},"trace":s["trace"]+["daily_tracking","coach_agent","restaurant_catalogue_unavailable","official_restaurant_menu_search"]}}
         except Exception: return {"response":{"intent":"meal_recommendation","message":advice["recommendation"],"data":{"coach":advice},"trace":s["trace"]+["daily_tracking","coach_agent","meal_planner_fallback"]}}
     def _general(self,s): return {"response":{"intent":"general_nutrition_chat","message":"I can help log food, review today’s nutrition, or suggest a meal based on your remaining targets.","data":{},"trace":s["trace"]+["general_response"]}}
     @staticmethod

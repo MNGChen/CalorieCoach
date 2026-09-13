@@ -115,6 +115,37 @@ class UserMemory(Base):
     __table_args__ = (UniqueConstraint("user_id", "category", "normalized_content", name="uq_user_memory_content"),)
 
 
+class KnowledgeSource(Base):
+    """Public, reviewable nutrition source used by the shared RAG knowledge base."""
+
+    __tablename__ = "knowledge_sources"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(300))
+    url: Mapped[str] = mapped_column(String(1000), unique=True, index=True)
+    publisher: Mapped[str] = mapped_column(String(120))
+    category: Mapped[str] = mapped_column(String(80), index=True)
+    content_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    fetched_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class KnowledgeChunk(Base):
+    """A citable chunk. Vectors are JSON so the local app needs no vector-database server."""
+
+    __tablename__ = "knowledge_chunks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_id: Mapped[int] = mapped_column(Integer, index=True)
+    ordinal: Mapped[int] = mapped_column(Integer)
+    content: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    embedding_model: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("source_id", "ordinal", name="uq_knowledge_chunk_ordinal"),)
+
+
 class Food(Base):
     """A locally-seeded food record; nutrition is for one typical serving."""
 

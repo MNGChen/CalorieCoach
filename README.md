@@ -13,6 +13,7 @@ A local nutrition-tracking application built with Streamlit. It helps users log 
 - **Explainable estimates**: Source URLs, validation status, confidence, and user-review markers remain attached to saved logs.
 - **Daily progress and AI coaching**: Database services calculate daily totals; the AI receives those deterministic totals as context for guidance.
 - **Assistant memory**: A user-scoped recent conversation window, bounded session summary, and reviewable long-term food preferences/constraints make follow-up coaching more useful without treating AI memory as nutrition fact.
+- **Citable nutrition RAG**: A shared, reviewable knowledge base retrieves relevant passages from curated WHO, WHO/FAO, Singapore HPB, and SFA public-health sources for coaching answers. The source URL is shown with each response.
 - **Progress page**: Shows 7-, 30-, and 90-day calorie, protein, and weight trends.
 - **AI meal recommendations**: The homepage assistant suggests a next meal from today's remaining nutrition budget. Suggestions are never logged automatically.
 - **Demo data**: A new username can load a 14-day sample history containing 42 meal logs and 5 weight entries.
@@ -38,9 +39,12 @@ Add an OpenAI API key to `.env`:
 ```env
 OPENAI_API_KEY=your_openai_api_key
 OPENAI_MODEL=gpt-6-astra
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 ```
 
 Without an API key, manual logging, the local food catalogue, progress tracking, and demo data remain available. AI parsing, coaching, web nutrition extraction, meal recommendations, and trend analysis require a valid key and network connection.
+
+The knowledge base always has a small local, source-linked starter set. In **Profile → Nutrition knowledge base**, choose **Refresh authoritative web sources** to download and index the current public guidance. With an OpenAI key, chunks and queries use `text-embedding-3-small`; without one, the same source-linked corpus remains available through a keyword fallback.
 
 ### 3. Run the app
 
@@ -87,6 +91,7 @@ CalorieCoach/
 ├── mcp_server/
 │   └── nutrition_server.py          # Read-only MCP entry point for the shared food catalogue
 ├── services/
+│   ├── knowledge_base_service.py  # Curated-source ingestion, chunking, embedding, retrieval, and citations
 │   ├── memory_service.py           # User-scoped conversation window, summary, and reviewable preferences
 │   ├── nutrition_service.py        # Profile, targets, and user-scoped daily totals
 │   ├── meal_service.py             # User-scoped food/weight CRUD and progress queries
@@ -187,6 +192,20 @@ Run it over the local stdio transport:
 
 The server is intentionally independent from the Streamlit UI, so a future `NutritionMcpProvider` can call it as an external fallback without exposing user data.
 
+### Database sources and provenance
+
+`caloriecoach.db` is a local SQLite database created on first launch. Its tables have different sources and should not be treated as interchangeable:
+
+| Database data | Source | How it is used |
+| --- | --- | --- |
+| `foods` | Bundled [data/food_300.xlsx](data/food_300.xlsx) seed catalogue | First-choice lookup for food estimates and portion scaling. |
+| `food_logs`, `weight_entries`, `user_profiles` | Data entered or confirmed by the active local user | The sole source for that user's targets, history, and deterministic daily totals. |
+| `conversation_*`, `user_memories` | Active user's assistant conversation and reviewable saved preferences | Context only; never used as nutrition facts or shared with another user. |
+| `knowledge_sources`, `knowledge_chunks` | Curated public-health webpages: WHO, WHO/FAO, Singapore HPB, and SFA; each record keeps its original URL and refresh time | General nutrition RAG context with visible citations; never used to calculate calories or macros. |
+| Web-derived food entries | DuckDuckGo result URLs plus extraction and validation metadata retained on the saved `food_logs` record | Fallback only when the bundled food catalogue has no reliable match; users review before saving. |
+
+The database is local by default and `caloriecoach.db` is excluded from Git. A username scopes personal tables but is not authentication; do not use this demo-style setup for public or sensitive-health deployments.
+
 ### User workspaces and data isolation
 
 `UserProfile.username` identifies a local user workspace. `FoodLog.user_id` and `WeightEntry.user_id` reference that profile, so food logs and weight data are queried and modified only within the active workspace.
@@ -221,6 +240,10 @@ User description
 
 The AI does not perform final aggregation, serving arithmetic, or database writes. Deterministic services handle those responsibilities. User-adjusted estimates are marked as `user_reviewed` while their original source metadata remains available.
 
+### Constrained local food matching
+
+For a non-exact food name, CalorieCoach retrieves a small set of local catalogue candidates before asking a structured-output model to choose one candidate ID or return no match. Explicit cooking methods are hard constraints: for example, `steamed chicken rice` cannot retrieve or select `roasted`, `fried`, or `grilled` chicken rice. The model never receives or generates nutrition values, and the server rejects any ID outside the retrieved candidates. Only a high-confidence candidate is used automatically; otherwise the existing web-evidence path is used. This keeps the local catalogue as the sole source for locally matched calories and macros.
+
 ### Daily summaries, coaching, and meal recommendations
 
 ```text
@@ -235,6 +258,16 @@ FoodLog for the active user
 
 `NutritionOrchestrator` powers the V1 assistant by loading the active user's memory context, routing requests to food logging, daily progress, coaching, meal recommendations, or general guidance, then saving the completed turn. Paths that read or write user data receive the active user's service instances.
 
+### Nutrition knowledge retrieval (RAG)
+
+The knowledge base is shared public guidance, not a user profile or source of calorie values. It has six curated starter sources (WHO, WHO/FAO, Singapore HPB, and SFA) and can refresh their current webpage text from the Profile tab. On refresh it extracts readable content, creates overlapping chunks, stores each chunk with its source metadata, and embeds it using OpenAI when configured. At question time, it embeds the question, ranks chunks by cosine similarity, and injects the highest-scoring excerpts into the nutrition coach context. When embeddings are unavailable, it uses lexical ranking and preserves the same source links.
+
+Only the selected excerpts may support general guidance. Profile targets, food logs, portions, and daily macro totals are still calculated by deterministic services and are never supplied by the RAG corpus. The UI lists the retrieved source links, and failed refreshes preserve the last successfully indexed text.
+
+### Restaurant requests
+
+Restaurant names such as KFC are not silently matched to an unrelated food in the local catalogue. The meal planner first looks for verified local menu nutrition. When that catalogue has no verified match, a separate search agent queries official Singapore restaurant pages and an LLM extracts only menu names supported by those pages. Those results are labelled **Official menu only**: they have no calories/macros, are not compared against the user's remaining budget, cannot be logged, and are never added to the local database. If the official search cannot return a supported item, the app also shows an LLM-generated general ordering strategy based on the user's remaining budget. It is explicitly labelled non-official, has no restaurant-item or nutrition claims, and is not loggable.
+
 ## Data model
 
 | Table | Purpose | Ownership |
@@ -246,3 +279,5 @@ FoodLog for the active user
 | `conversation_messages` | User and assistant messages for the current short-term context window | `user_id → user_profiles.id` |
 | `conversation_sessions` | Bounded summary of older messages in a conversation session | `user_id → user_profiles.id` |
 | `user_memories` | Reviewable preferences, constraints, routines, goals, and communication style | `user_id → user_profiles.id` |
+| `knowledge_sources` | Curated public-health source metadata and refresh state | Shared, read-only corpus |
+| `knowledge_chunks` | Citable text passages and optional embeddings | `source_id → knowledge_sources.id` |

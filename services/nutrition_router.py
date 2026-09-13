@@ -22,7 +22,7 @@ class NutritionRouter:
             raise RouterError(str(exc)) from exc
     def route(self,message:str)->IntentSchema:
         lower=message.casefold()
-        if any(x in lower for x in ("what should i eat","what can i eat","recommend a meal","for dinner","for lunch", "mcdonald's", "mcdonalds", "麦当劳")): return IntentSchema(intent="meal_recommendation",confidence=1)
+        if any(x in lower for x in ("what should i eat","what can i eat","recommend a meal","for dinner","for lunch", "mcdonald's", "mcdonalds", "麦当劳", "kfc", "kentucky fried chicken", "肯德基")): return IntentSchema(intent="meal_recommendation",confidence=1)
         if any(x in lower for x in ("how am i doing","calories left","calorie remaining","today's progress")): return IntentSchema(intent="daily_progress",confidence=1)
         if any(x in lower for x in ("do i need more protein","more carbs","more fat","protein today")): return IntentSchema(intent="nutrition_question",confidence=1)
         if any(x in lower for x in ("i ate","i had","i drank","log ")): return IntentSchema(intent="log_food",confidence=1)

@@ -86,6 +86,18 @@ class NutritionCoachServiceTests(unittest.TestCase):
         service.get_nutrition_advice("What should I eat next?", memory_context=memory)
         self.assertEqual(agent.contexts[0]["conversation_memory"], memory)
 
+    def test_retrieved_knowledge_is_injected_and_returned_with_citations(self) -> None:
+        class KnowledgeBase:
+            def retrieve(self, question):
+                self.question = question
+                return [{"title": "Healthy diet", "url": "https://example.test/healthy", "excerpt": "Use varied foods."}]
+        agent = _Agent(); knowledge = KnowledgeBase()
+        service = NutritionCoachService(_Daily(summary()), _Nutrition("Weight Loss"), _Meals(), agent, knowledge)
+        response = service.get_nutrition_advice("How can I eat more healthily?")
+        self.assertEqual(knowledge.question, "How can I eat more healthily?")
+        self.assertEqual(agent.contexts[0]["knowledge_sources"][0]["title"], "Healthy diet")
+        self.assertEqual(response["knowledge_sources"][0]["url"], "https://example.test/healthy")
+
     def test_missing_target_returns_without_calling_agent(self) -> None:
         state = {"date": "2026-09-11", "target": None, "consumed": {"calories": 0.0, "protein_g": 0.0, "carbs_g": 0.0, "fat_g": 0.0}, "remaining": None}
         service, agent = self._service(state, goal=None)

@@ -26,6 +26,7 @@ class MealTargetConfig:
 class MealPlanningService:
     RESTAURANT_ALIASES = {
         "McDonald's": ("mcdonald's", "mcdonalds", "麦当劳"),
+        "KFC": ("kfc", "kentucky fried chicken", "肯德基"),
     }
     def __init__(self, agent: MealPlanningAgent | None = None, calculator: PortionCalculator | None = None,
                  config: MealTargetConfig | None = None, session_factory: Any = get_session) -> None:
@@ -44,7 +45,7 @@ class MealPlanningService:
         for attempt in range(2):
             if last: context["previous_calculated_meal"] = last
             proposal = self.agent.plan(context)
-            calculated = self._calculate(proposal, target)
+            calculated = self._calculate(proposal, target, {item["id"] for item in candidates})
             if calculated["within_target"] or attempt == 1: return calculated
             last = calculated
         return last or {}
@@ -65,10 +66,12 @@ class MealPlanningService:
         lean_first = "protein" in strategy.casefold()
         foods.sort(key=lambda food: ((food.fat_g / max(food.protein_g, 1)) if lean_first else 0, food.name.casefold() in recent, food.name))
         return [{"id": food.id, "name": food.name, "serving_size": f"{food.serving_quantity:g} {food.serving_unit}" if food.serving_quantity else "typical serving", "calories": food.calories, "protein_g": food.protein_g, "carbs_g": food.carbs_g, "fat_g": food.fat_g} for food in foods[:12]]
-    def _calculate(self, proposal, target: dict[str, float]) -> dict[str, Any]:
+    def _calculate(self, proposal, target: dict[str, float], allowed_food_ids: set[int] | None = None) -> dict[str, Any]:
         with self.session_factory() as session:
             selected = []
             for item in proposal.foods:
+                if allowed_food_ids is not None and item.food_id not in allowed_food_ids:
+                    raise MealPlanningAgentError("Meal planner selected a food outside the verified candidate list.")
                 food = session.get(Food, item.food_id)
                 if food is None: raise MealPlanningAgentError("Meal planner selected a food outside the candidate database.")
                 nutrition = self.calculator.calculate(food, FoodInput(food.name, item.quantity, item.unit.casefold()))

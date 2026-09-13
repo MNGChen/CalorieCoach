@@ -5,8 +5,12 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from sqlalchemy import select
+
 from database.database import get_session
+from database.models import Food
 from services.food_input_parser import FoodInputParser
+from services.food_match_agent import FoodMatchAgent, FoodMatchAgentError
 from services.food_search_service import FoodSearchService
 from services.portion_calculator import PortionCalculator, ServingNutrition
 from services.web_nutrition_extractor import WebNutritionExtractionError, WebNutritionExtractor
@@ -20,13 +24,15 @@ class FoodAnalysisService:
     def __init__(self, parser: FoodInputParser | None = None, search: FoodSearchService | None = None,
                  calculator: PortionCalculator | None = None, web_search: WebSearchProvider | None = None,
                  web_extractor: WebNutritionExtractor | None = None,
-                 validator: NutritionValidationService | None = None, session_factory: Any = get_session) -> None:
+                 validator: NutritionValidationService | None = None, matcher: FoodMatchAgent | None = None,
+                 session_factory: Any = get_session) -> None:
         self.parser = parser or FoodInputParser()
         self.search = search or FoodSearchService()
         self.calculator = calculator or PortionCalculator()
         self.web_search = web_search or DuckDuckGoFoodSearchProvider()
         self.web_extractor = web_extractor or WebNutritionExtractor()
         self.validator = validator or NutritionValidationService()
+        self.matcher = matcher or FoodMatchAgent()
         self.session_factory = session_factory
 
     def analyze(self, message: str, on_status: Callable[[str], None] | None = None) -> list[dict[str, Any]]:
@@ -37,8 +43,11 @@ class FoodAnalysisService:
         with self.session_factory() as session:
             for input_food in inputs:
                 logger.info("Food detected: %s", input_food.name)
-                food = self.search.search(session, input_food.name)
+                food, local_candidates = self._local_match(session, input_food)
                 if food is None:
+                    if local_candidates:
+                        results.append(self._needs_local_confirmation(input_food, local_candidates))
+                        continue
                     logger.info("Local DB search: no reliable match. Using web fallback.")
                     self._notify(on_status, f"No local match for {input_food.name}; checking trusted web sources…")
                     results.append(self._resolve_web(input_food, on_status))
@@ -56,6 +65,46 @@ class FoodAnalysisService:
                 }})
         self._notify(on_status, "Nutrition estimates are ready for your review.")
         return results
+
+    def _local_match(self, session: Any, input_food: Any) -> tuple[Any | None, list[dict[str, Any]]]:
+        """Retrieve local candidates, then accept only a high-confidence constrained selection."""
+        input_name = input_food.name
+        # Keep the existing narrow test and MCP seams working with custom search stubs.
+        if not isinstance(self.search, FoodSearchService):
+            return self.search.search(session, input_name), []
+        catalogue = list(session.scalars(select(Food)))
+        exact = self.search.exact_match(catalogue, input_name)
+        if exact:
+            return exact, []
+        candidates = self.search.candidate_foods(catalogue, input_name)
+        if not candidates:
+            return None, []
+        candidate_data = [{"id": food.id, "name": food.name, "category": getattr(food, "category", None)} for food in candidates]
+        try:
+            decision = self.matcher.choose(input_name, candidate_data)
+        except FoodMatchAgentError:
+            logger.info("Local food candidates could not be confidently verified.")
+            return None, self._candidate_details(candidates, input_food)
+        if decision.food_id is None or decision.confidence != "high":
+            return None, self._candidate_details(candidates, input_food)
+        return next((food for food in candidates if food.id == decision.food_id), None), []
+
+    def _candidate_details(self, candidates: list[Food], input_food: Any) -> list[dict[str, Any]]:
+        details = []
+        for food in candidates:
+            nutrition = self.calculator.calculate(food, input_food)
+            details.append({"id": food.id, "name": food.name, "serving_size": nutrition.serving_size,
+                            "calories": nutrition.calories, "protein_g": nutrition.protein_g,
+                            "carbs_g": nutrition.carbs_g, "fat_g": nutrition.fat_g})
+        return details
+
+    @staticmethod
+    def _needs_local_confirmation(input_food: Any, candidates: list[dict[str, Any]]) -> dict[str, Any]:
+        return {"input_food": input_food.name, "quantity": input_food.quantity, "unit": input_food.unit,
+                "matched": False, "resolved": False, "source_type": "local_database",
+                "validation_status": "needs_review", "confidence": "low", "confidence_score": 0.0,
+                "matched_food": None, "sources": [], "local_candidates": candidates,
+                "reason": "Choose the matching local dish before nutrition is saved."}
 
     def _resolve_web(self, input_food: Any, on_status: Callable[[str], None] | None = None) -> dict[str, Any]:
         try:

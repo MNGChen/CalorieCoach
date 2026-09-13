@@ -5,6 +5,7 @@ from contextlib import contextmanager
 
 from services.food_analysis_service import FoodAnalysisService
 from services.food_input_parser import FoodInput, FoodInputParser
+from services.food_match_agent import FoodMatchAgent, FoodMatchAgentError, FoodMatchSchema
 from services.food_search_service import FoodSearchService
 from services.nutrition_normalizer import NutritionNormalizer
 from services.nutrition_statistics import NutritionStatisticsService
@@ -62,6 +63,19 @@ class FoodSearchTests(unittest.TestCase):
 
     def test_food_not_found(self) -> None:
         self.assertIsNone(self.service.search_foods(self.foods, "unknown food"))
+
+    def test_explicit_cooking_method_rejects_conflicting_candidate(self) -> None:
+        foods = [Food(1, "Roasted chicken rice", "roasted chicken rice")]
+        self.assertEqual(self.service.candidate_foods(foods, "steamed chicken rice"), [])
+        self.assertIsNone(self.service.search_foods(foods, "steamed chicken rice"))
+
+
+class FoodMatchAgentTests(unittest.TestCase):
+    def test_rejects_a_food_id_outside_the_retrieved_candidates(self) -> None:
+        class InvalidChain:
+            def invoke(self, _values): return {"food_id": 99, "confidence": "high", "reason": "Looks right."}
+        with self.assertRaises(FoodMatchAgentError):
+            FoodMatchAgent(InvalidChain()).choose("chicken rice", [{"id": 1, "name": "Chicken rice"}])
 
 
 class NutritionMcpToolTests(unittest.TestCase):
@@ -199,6 +213,32 @@ class FoodAnalysisValidationTests(unittest.TestCase):
     def test_web_search_failure_is_unresolved(self) -> None:
         result = self._service([FoodInput("ramen", None, None)], {}, _StubWebSearch(fail=True), _StubExtractor([self.source])).analyze("ignored")
         self.assertFalse(result[0]["resolved"])
+
+    def test_local_match_uses_only_a_high_confidence_candidate_id(self) -> None:
+        class CandidateSession:
+            def __init__(self, foods): self.foods = foods
+            def scalars(self, _query): return self.foods
+        class Matcher:
+            def choose(self, _query, candidates):
+                return FoodMatchSchema(food_id=candidates[0]["id"], confidence="high", reason="Exact dish candidate.")
+        food = Food(7, "Steamed chicken rice", "steamed chicken rice")
+        service = FoodAnalysisService(matcher=Matcher())
+        matched, candidates = service._local_match(CandidateSession([food]), FoodInput("steam chicken rice", None, None))
+        self.assertEqual(matched.id, 7)
+        self.assertEqual(candidates, [])
+
+    def test_ambiguous_local_match_returns_candidates_for_user_confirmation(self) -> None:
+        class CandidateSession:
+            def __init__(self, foods): self.foods = foods
+            def scalars(self, _query): return self.foods
+        class Matcher:
+            def choose(self, _query, _candidates):
+                return FoodMatchSchema(food_id=None, confidence="low", reason="Ambiguous dish.")
+        food = Food(7, "Steamed chicken rice", "steamed chicken rice")
+        service = FoodAnalysisService(matcher=Matcher())
+        matched, candidates = service._local_match(CandidateSession([food]), FoodInput("steam chicken rice", None, None))
+        self.assertIsNone(matched)
+        self.assertEqual(candidates[0]["name"], "Steamed chicken rice")
 
 
 class ValidationAgentSchemaTests(unittest.TestCase):

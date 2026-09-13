@@ -23,11 +23,23 @@ class MealPlanningServiceTests(unittest.TestCase):
         self.assertEqual(service.restaurant_for_request("我想吃麦当劳"), "McDonald's")
         self.assertIsNone(service.restaurant_for_request("Recommend lunch"))
 
+    def test_detects_kfc_aliases(self) -> None:
+        service = self._service()
+        self.assertEqual(service.restaurant_for_request("I want KFC"), "KFC")
+        self.assertEqual(service.restaurant_for_request("Recommend Kentucky Fried Chicken"), "KFC")
+        self.assertEqual(service.restaurant_for_request("我想吃肯德基"), "KFC")
+
     def test_does_not_substitute_unrelated_local_food_for_restaurant_request(self) -> None:
         service = self._service()
         with self.assertRaises(RestaurantMenuUnavailable):
             service.recommend({"target_for_next_meal": {"calories": 500.0}, "priority": "protein"},
                               user_request="I want to eat McDonald's")
+
+    def test_does_not_substitute_unrelated_local_food_for_kfc_request(self) -> None:
+        service = self._service()
+        with self.assertRaises(RestaurantMenuUnavailable):
+            service.recommend({"target_for_next_meal": {"calories": 500.0}, "priority": "protein"},
+                              user_request="I want KFC, any suggestion?")
 
 
 if __name__ == "__main__":

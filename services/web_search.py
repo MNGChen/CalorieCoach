@@ -28,6 +28,7 @@ class WebSearchError(RuntimeError):
 
 class WebSearchProvider(Protocol):
     def search_food_web(self, food_name: str) -> list[WebSearchResult]: ...
+    def search_web(self, query: str) -> list[WebSearchResult]: ...
 
 
 def nutrition_search_query(food_name: str) -> str:
@@ -72,10 +73,13 @@ class DuckDuckGoFoodSearchProvider:
     max_results = 5
 
     def search_food_web(self, food_name: str) -> list[WebSearchResult]:
+        return self.search_web(nutrition_search_query(food_name))
+
+    def search_web(self, query: str) -> list[WebSearchResult]:
         try:
-            response = requests.get(self.endpoint, params={"q": nutrition_search_query(food_name)},
+            response = requests.get(self.endpoint, params={"q": query},
                                     timeout=REQUEST_TIMEOUT_SECONDS,
-                                    headers={"User-Agent": "CalorieCoach/1.0 nutrition lookup"})
+                                    headers={"User-Agent": "CalorieCoach/1.0 public nutrition lookup"})
             response.raise_for_status()
         except requests.RequestException as exc:
             raise WebSearchError("Web search is currently unavailable.") from exc
@@ -85,7 +89,7 @@ class DuckDuckGoFoodSearchProvider:
         results = [self._to_result(item) for item in parser.results]
         usable = [result for result in results if result is not None]
         ranked = sorted(usable, key=self._source_priority)
-        logger.info("Web nutrition search returned %s usable result(s).", len(ranked))
+        logger.info("Web search returned %s usable result(s).", len(ranked))
         return ranked[:self.max_results]
 
     @staticmethod

@@ -16,11 +16,12 @@ logger = logging.getLogger(__name__)
 class NutritionCoachService:
     def __init__(self, daily_nutrition: DailyNutritionService | None = None,
                  nutrition: NutritionService | None = None, meals: MealService | None = None,
-                 agent: NutritionCoachAgent | None = None) -> None:
+                 agent: NutritionCoachAgent | None = None, knowledge_base: Any | None = None) -> None:
         self.nutrition = nutrition or NutritionService()
         self.daily_nutrition = daily_nutrition or DailyNutritionService(self.nutrition)
         self.meals = meals or MealService()
         self.agent = agent or NutritionCoachAgent()
+        self.knowledge_base = knowledge_base
 
     def get_nutrition_advice(self, question: str, day: date | None = None,
                              memory_context: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -33,6 +34,8 @@ class NutritionCoachService:
             return {"available": False, "reason": "Set up your profile to receive daily nutrition guidance.",
                     "daily_summary": summary}
         context = self._context(question, profile.goal, summary, selected_day, memory_context)
+        if self.knowledge_base:
+            context["knowledge_sources"] = self.knowledge_base.retrieve(question)
         logger.info("Coach request received. Goal: %s. Calorie progress: %.0f%%. Protein progress: %.0f%%.",
                     profile.goal, context["progress"]["calories"] * 100, context["progress"]["protein_g"] * 100)
         try:
@@ -47,6 +50,7 @@ class NutritionCoachService:
         return {"available": True, "summary": advice.summary, "priority": advice.priority,
                 "recommendation": advice.recommendation, "avoid_or_limit": advice.avoid_or_limit,
                 "reasoning_summary": advice.reasoning_summary,
+                "knowledge_sources": context.get("knowledge_sources", []),
                 # This is a deterministic remaining budget, not an LLM-generated meal prescription.
                 "target_for_next_meal": {key: max(0, value) for key, value in summary["remaining"].items()},
                 "daily_summary": summary}
