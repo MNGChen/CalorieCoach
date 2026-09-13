@@ -9,6 +9,8 @@ from services.daily_nutrition_service import DailyNutritionService
 from services.meal_service import MealService
 from services.nutrition_coach_agent import NutritionCoachAgent, NutritionCoachAgentError
 from services.nutrition_service import NutritionService
+from services.dietary_constraints import DietaryConstraints
+from services.meal_budget_service import next_meal_budget
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,11 @@ class NutritionCoachService:
                     "daily_summary": summary}
         context = self._context(question, profile.goal, summary, selected_day, memory_context)
         if self.knowledge_base:
-            context["knowledge_sources"] = self.knowledge_base.retrieve(question)
+            try:
+                context["knowledge_sources"] = self.knowledge_base.retrieve(question)
+            except Exception:
+                logger.warning("Knowledge retrieval unavailable; using daily data only.", exc_info=True)
+                context["knowledge_sources"] = []
         logger.info("Coach request received. Goal: %s. Calorie progress: %.0f%%. Protein progress: %.0f%%.",
                     profile.goal, context["progress"]["calories"] * 100, context["progress"]["protein_g"] * 100)
         try:
@@ -51,8 +57,10 @@ class NutritionCoachService:
                 "recommendation": advice.recommendation, "avoid_or_limit": advice.avoid_or_limit,
                 "reasoning_summary": advice.reasoning_summary,
                 "knowledge_sources": context.get("knowledge_sources", []),
-                # This is a deterministic remaining budget, not an LLM-generated meal prescription.
-                "target_for_next_meal": {key: max(0, value) for key, value in summary["remaining"].items()},
+                "user_goal": profile.goal,
+                "recent_foods": [item["food"] for item in context["recent_meals"]],
+                "dietary_constraints": context["dietary_constraints"],
+                "target_for_next_meal": next_meal_budget(summary, context["recent_meals"], question),
                 "daily_summary": summary}
 
     def _context(self, question: str, goal: str, summary: dict[str, Any], selected_day: date,
@@ -63,4 +71,5 @@ class NutritionCoachService:
         return {"user_goal": goal, "daily_target": target, "consumed": consumed, "remaining": summary["remaining"],
                 "progress": progress, "recent_meals": [{"food": item.food_name, "meal_type": item.meal_type,
                                                           "calories": item.calories} for item in recent],
-                "user_question": question.strip(), "conversation_memory": memory_context or {}}
+                "user_question": question.strip(), "conversation_memory": memory_context or {},
+                "dietary_constraints": DietaryConstraints.from_context(memory_context or {}, question).model_dump()}

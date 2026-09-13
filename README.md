@@ -1,283 +1,135 @@
 # CalorieCoach
 
-A local nutrition-tracking application built with Streamlit. It helps users log meals, estimate calories and macronutrients, review food and weight trends, and receive AI guidance grounded in the day's actual intake.
+A local Streamlit nutrition workspace for recording meals, reviewing estimates, tracking trends, and getting AI coaching based on deterministic daily totals.
 
-> CalorieCoach provides general adult nutrition estimates and habit support. It does not diagnose, treat, or replace professional medical advice.
+CalorieCoach provides general adult nutrition estimates and habit support. It does not diagnose, treat, or replace professional medical advice.
 
-## Features
+## Run locally
 
-- **Username workspaces**: Each username has its own profile, food logs, weight entries, and AI context. No password is required, making this suitable for local household or classroom demos.
-- **Personal targets**: Calculates BMR, TDEE, calories, and macro targets from a user's profile, with support for complete custom targets.
-- **Food logging**: Add meals manually, review AI results before saving, and edit or delete saved records.
-- **Nutrition lookup**: Searches the bundled food catalogue first, then falls back to web evidence extraction and validation when necessary.
-- **Explainable estimates**: Source URLs, validation status, confidence, and user-review markers remain attached to saved logs.
-- **Daily progress and AI coaching**: Database services calculate daily totals; the AI receives those deterministic totals as context for guidance.
-- **Assistant memory**: A user-scoped recent conversation window, bounded session summary, and reviewable long-term food preferences/constraints make follow-up coaching more useful without treating AI memory as nutrition fact.
-- **Citable nutrition RAG**: A shared, reviewable knowledge base retrieves relevant passages from curated WHO, WHO/FAO, Singapore HPB, and SFA public-health sources for coaching answers. The source URL is shown with each response.
-- **Progress page**: Shows 7-, 30-, and 90-day calorie, protein, and weight trends.
-- **AI meal recommendations**: The homepage assistant suggests a next meal from today's remaining nutrition budget. Suggestions are never logged automatically.
-- **Demo data**: A new username can load a 14-day sample history containing 42 meal logs and 5 weight entries.
-
-## Quick start
-
-### 1. Install dependencies
+Use Python 3.11 or newer:
 
 ```powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
-
-### 2. Configure OpenAI (optional)
-
-```powershell
+python -m pip install -r requirements.txt
 Copy-Item .env.example .env
-```
-
-Add an OpenAI API key to `.env`:
-
-```env
-OPENAI_API_KEY=your_openai_api_key
-OPENAI_MODEL=gpt-6-astra
-OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-```
-
-Without an API key, manual logging, the local food catalogue, progress tracking, and demo data remain available. AI parsing, coaching, web nutrition extraction, meal recommendations, and trend analysis require a valid key and network connection.
-
-The knowledge base always has a small local, source-linked starter set. In **Profile → Nutrition knowledge base**, choose **Refresh authoritative web sources** to download and index the current public guidance. With an OpenAI key, chunks and queries use `text-embedding-3-small`; without one, the same source-linked corpus remains available through a keyword fallback.
-
-### 3. Run the app
-
-```powershell
 streamlit run app.py
 ```
 
-On first launch, the application creates `caloriecoach.db` locally and seeds the food catalogue from `data/food_300.xlsx`.
+An OpenAI key is optional. Without it, profiles, custom targets, manual logging, demo data, progress charts, deterministic daily summaries, and the local catalogue MCP tools work. AI text parsing, coaching, web extraction, and meal proposals require a configured key and a network connection.
 
-## User flow
+Configure `OPENAI_API_KEY`, `OPENAI_MODEL`, and optionally `OPENAI_EMBEDDING_MODEL` in `.env`. AI clients are initialized only when called. Structured responses use `store=False`. Logs record stage duration and token usage without logging prompt bodies.
 
-```text
-Enter a username
-    ↓
-New user: complete a profile or load demo data
-Existing user: load that username's profile and history
-    ↓
-Log food manually or use AI lookup → review/edit the estimate → save
-    ↓
-Calculate user-scoped daily totals → dashboard, progress page, and AI coach
-    ↓
-Ask a follow-up question → recent conversation context and saved preferences inform the response
-```
+## Workspace and food flow
 
-### Loading demo data
+1. Enter a username in the sidebar.
+2. Complete a profile, or load the two-week demo into an unused username.
+3. Enter known nutrition manually, or ask the assistant / nutrition lookup to prepare an estimate.
+4. Review the dish, reference portion, nutrients, date, and meal type.
+5. Confirm and save. Unresolved foods are listed individually; partial saving requires explicit acknowledgement.
+6. View updated totals and trends, or request a next-meal suggestion.
 
-1. Enter an unused username in the sidebar, such as `demo-user`.
-2. Select **Load demo data**.
-3. Open the Progress page to inspect two weeks of food and weight history.
+Both AI entry points use the same confirmation component. Chat never writes food logs directly. A mixed request such as “I had chicken rice for lunch — what should I eat for dinner?” prepares the consumed meal first and retains the question for after confirmation.
 
-Demo data can only be loaded into a username without a profile. This prevents repeated loads from duplicating or overwriting real records. Use a different username to create another demo workspace.
+A draft keeps its original description, owner, and submission ID. Changing the input textbox does not relabel an older estimate. Switching usernames clears draft, assistant, trend, and widget state. Duplicate submissions are reserved by a unique `user_id + request_id` database constraint; a changed payload cannot reuse an old submission ID.
 
-## Project structure
+**Local access model:** usernames identify workspaces; they are not authentication. This mode is intended for a local demo or personal installation. Public deployment requires a separate authentication and authorization design.
 
-```text
-CalorieCoach/
-├── app.py                         # Main dashboard, username workspace, logs, coach, assistant
-├── pages/
-│   ├── Progress.py                 # Food/weight trends and history
-├── database/
-│   ├── models.py                   # UserProfile, FoodLog, WeightEntry, Food ORM models
-│   ├── database.py                 # SQLite engine, transactions, additive migrations
-│   └── food_seed.py                # Imports the bundled Excel food catalogue
-├── mcp_server/
-│   └── nutrition_server.py          # Read-only MCP entry point for the shared food catalogue
-├── services/
-│   ├── knowledge_base_service.py  # Curated-source ingestion, chunking, embedding, retrieval, and citations
-│   ├── memory_service.py           # User-scoped conversation window, summary, and reviewable preferences
-│   ├── nutrition_service.py        # Profile, targets, and user-scoped daily totals
-│   ├── meal_service.py             # User-scoped food/weight CRUD and progress queries
-│   ├── meal_logging_service.py     # Atomic persistence of validated food estimates
-│   ├── demo_data_service.py        # Safe two-week demo-history generator
-│   ├── nutrition_mcp_tools.py       # Read-only tool implementations used by the MCP server
-│   ├── food_* / web_*              # Food parsing, search, and web nutrition evidence extraction
-│   ├── nutrition_*                 # Routing, validation, statistics, coaching, orchestration
-│   ├── portion_calculator.py       # Deterministic serving calculations
-│   └── meal_planning_*.py          # Local candidate selection and meal recommendation
-├── ai/
-│   ├── prompts.py                  # Auditable AI prompts
-│   ├── openai_client.py             # OpenAI Responses API structured-output adapter
-│   └── nutrition_ai.py              # OpenAI Responses API text client
-├── utils/
-│   ├── helpers.py                  # Dashboard metrics and progress bars
-│   └── ui.py                       # Shared visual theme, headers, and empty states
-├── data/food_300.xlsx              # Initial local food catalogue
-└── tests/                          # Pipeline, logging, coaching, router, and memory tests
-```
+## Portions and source quality
+
+- Matching units scale deterministically: grams/kilograms, millilitres/litres, matching count units, and fractions or multiples of a reference serving.
+- Mass and volume are never converted using an assumed density.
+- Unknown portions and incompatible units require user review. Reference nutrition is displayed with an explanation rather than being presented as a measured estimate.
+- The bundled `data/food_300.xlsx` has a mixed “g/ml” heading without per-row units. Its units are recorded as unverified. A future catalogue can supply a `Serving Unit` column; the current importer does not silently assume grams.
+- Catalogue records retain their file name, SHA-256 version, and source quality. Unknown origin/region and dietary tags are not invented. Existing catalogue macros and saved food-log values are preserved during upgrades.
+- Food-name match confidence, portion status, and nutrition source quality are separate. Confirmed logs retain original estimates and available evidence metadata.
+- Web fallback extracts from supplied search snippets, not fetched full nutrition pages. Unsupported fields remain missing. Canonical URLs are deduplicated; confidence also depends on distinct source websites. Agreement does not prove the underlying nutrition is correct.
+
+## Meal recommendations and dietary constraints
+
+The next-meal budget is separate from the whole day's remaining budget. The current transparent planning heuristic caps breakfast at 25%, lunch/dinner at 35%, and snacks at 10% of daily targets, also bounded by the remaining amount. When a meal is not named, logged meal types guide which meal is next. These are planning defaults, not clinical prescriptions.
+
+The planner receives recent foods, the user goal, and structured dietary constraints. It may choose only retrieved food IDs. Portions and nutrients are calculated by code; a plan is returned only if it passes the configured budget checks. Two failed proposals produce a visible explanation and general coaching, rather than an unchecked meal.
+
+Dietary restrictions are never dropped to make room for recent preferences. Automatically detected restrictions and diet preferences appear in Profile for confirmation. The complete allergen statement is retained.
+
+The current catalogue lacks reviewed ingredient lists. Food names cannot establish allergen safety. Allergy/ingredient-avoidance requests therefore do not receive a supposedly verified local meal. Vegetarian/vegan and similar choices require reviewed `dietary_tags`; unknown tags fail the filter.
+
+Restaurant discovery supports official Singapore domains for KFC and McDonald's. These results are menu information only: no verified nutrition or dietary suitability, no budget comparison, and no automatic logging.
+
+## Knowledge and memory
+
+The shared public-guidance corpus uses source-linked WHO, WHO/FAO, Singapore HPB, and SFA starter passages. Starting the app seeds those passages locally without network or embedding requests.
+
+Profile → **Nutrition knowledge base** → **Refresh authoritative web sources** downloads and indexes public guidance. Embeddings are prepared before opening a write transaction. Failed downloads retain existing content. When embeddings are unavailable, retrieval falls back to keyword scoring and preserves source URLs. Refresh can retry missing vectors even if a webpage's text has not changed.
+
+The corpus supports general coaching only. Profiles, food logs, portions, and daily totals remain the source of truth for personal nutrition. Source links identify retrieved context, not an independently audited guarantee of every generated sentence.
+
+Memory stores recent messages, a bounded summary, and reviewable preferences. It is always scoped by user. Profile lets users add, confirm, and remove memories; removing memory does not delete food or weight records.
+
+## Database and upgrades
+
+SQLite is the supported database. The default file is `caloriecoach.db`; `DATABASE_URL` can point to another SQLite file.
+
+Initialization runs once per engine in a process. The versioned upgrade preserves older single-user data in the `legacy` workspace and adds provenance, submission, and confirmation fields. Before upgrading an existing unversioned database, it creates a sibling `*.pre-v1-<timestamp>.db` backup. Backups and local databases must remain private.
+
+Fresh tables use foreign keys. Legacy user-owned tables also receive owner-validation triggers without rebuilding food histories. Services reject writes without an existing owner, and unscoped reads return no personal data. Weight uniqueness is per user and day.
+
+| Data | Ownership / purpose |
+| --- | --- |
+| `user_profiles` | Username, body data, targets |
+| `food_logs`, `weight_entries` | User-owned nutrition and weight records |
+| `meal_submissions` | Atomic per-user duplicate-submission protection |
+| `conversation_messages`, `conversation_sessions`, `user_memories` | User-owned conversational context |
+| `foods` | Shared reference nutrition and provenance |
+| `knowledge_sources`, `knowledge_chunks` | Shared public-guidance passages and optional vectors |
+| `schema_migrations` | Applied local schema version |
 
 ## Architecture
 
-## Agent orchestration flow
-
-The V1 Assistant sends each free-text request through `NutritionOrchestrator`. Purple nodes are AI agents; green nodes are deterministic services that calculate, validate, retrieve, or persist data.
-
 ```mermaid
 flowchart TD
-    U[User message] --> MEM[MemoryService<br/>Recent context + saved preferences]
-    MEM --> R[NutritionRouter<br/>AI agent]
-    R --> I{Intent}
-
-    I -- Log food --> FP[FoodInputParser<br/>AI agent]
-    FP --> FS[FoodSearchService<br/>Deterministic]
-    FS --> LM{Local food match?}
-    LM -- Yes --> PC[PortionCalculator<br/>Deterministic]
-    LM -- No --> WS[DuckDuckGo food search<br/>Deterministic]
-    WS --> WE[WebNutritionExtractor<br/>AI agent]
-    WE --> NV[NutritionNormalizer + Statistics<br/>Deterministic]
-    NV --> VA[NutritionValidationAgent<br/>AI agent, constrained by evidence]
-    PC --> ML[MealLoggingService<br/>Deterministic persistence]
-    VA --> ML
-    ML --> LD[DailyNutritionService<br/>Deterministic summary]
-
-    I -- Daily progress --> DP[DailyNutritionService<br/>Deterministic summary]
-
-    I -- Nutrition question --> CQ[DailyNutritionService<br/>Deterministic summary]
-    CQ --> CA[NutritionCoachAgent<br/>AI agent with calculated context]
-
-    I -- Recommend a meal --> RM[DailyNutritionService<br/>Deterministic summary]
-    RM --> CA
-    CA --> MC[Local food candidates<br/>Deterministic retrieval]
-    MC --> MPA[MealPlanningAgent<br/>AI agent]
-    MPA --> MPC[PortionCalculator + target check<br/>Deterministic]
-
-    I -- General question --> GR[General nutrition response<br/>Deterministic]
-
-    LD --> OUT[Structured response]
-    DP --> OUT
-    CA --> OUT
-    MPC --> OUT
-    GR --> OUT
-    OUT --> SM[MemoryService<br/>Store turn + update bounded summary]
-
-    classDef agent fill:#ede9fe,stroke:#7c3aed,color:#2e1065;
-    classDef deterministic fill:#dcfce7,stroke:#16a34a,color:#14532d;
-    class R,FP,WE,VA,CA,MPA agent;
-    class FS,PC,WS,NV,ML,LD,DP,CQ,RM,MC,MPC,GR,MEM,SM deterministic;
+    UI[Streamlit workspace] --> Router[Intent routing]
+    Router --> Draft[Food parsing and catalogue or web evidence]
+    Draft --> Review[Shared review form]
+    Review --> Save[Atomic user-scoped save]
+    Save --> Daily[Deterministic daily totals]
+    Router --> Coach[Coaching with daily data, memory and public sources]
+    Coach --> Plan[Filtered meal candidates and proposed portions]
+    Plan --> Check[Deterministic portion and budget checks]
 ```
 
-### Local Nutrition MCP Server
+- `app.py`: workspace composition, dashboard, and food-log controls.
+- `utils/profile_ui.py`, `utils/assistant_ui.py`, `utils/food_review_ui.py`: focused UI components.
+- `services/food_review_service.py`: draft identity and validated review contract.
+- `services/portion_calculator.py`: unit normalization and deterministic scaling.
+- `services/meal_budget_service.py`, `services/dietary_constraints.py`: explicit planning policy.
+- `services/nutrition_orchestrator.py`: readable routing workflow; no chat-side persistence.
+- `database/`: models, startup migration, transactions, and catalogue import.
+- `ai/`: prompts and lazy Responses API clients.
 
-CalorieCoach includes a small, read-only MCP server for the shared local food catalogue. It deliberately does not expose personal profiles, food logs, weight entries, or any write operation.
+## Read-only catalogue MCP
 
-| Tool | Purpose |
-| --- | --- |
-| `search_local_food(query)` | Find the best catalogue match and its typical-serving nutrition. |
-| `lookup_food_nutrition(query, quantity, unit)` | Match a food name and return nutrition in one call; grams scale the portion. |
-
-`lookup_food_nutrition` is the preferred tool for AI agents. It accepts a food name directly, so agents do **not** need to search for or retain an internal `food_id` first.
-
-```text
-lookup_food_nutrition(
-  query="Hainanese chicken rice",
-  quantity=250,
-  unit="g"
-)
-```
-
-The result includes the matched catalogue food, serving size, calories, protein, carbohydrates, fat, source, and whether the quantity was scaled. When no reliable local match exists, it returns `found: false` instead of inventing nutrition data.
-
-Run it over the local stdio transport:
+Run from the project root:
 
 ```powershell
-.\.venv\Scripts\python.exe mcp_server\nutrition_server.py
+.\.venv\Scripts\python.exe -m mcp_server.nutrition_server
 ```
 
-The server is intentionally independent from the Streamlit UI, so a future `NutritionMcpProvider` can call it as an external fallback without exposing user data.
+The historical direct-script command is also supported. The tools expose shared catalogue data only, never personal logs, profiles, or memory:
 
-### Database sources and provenance
+- `search_local_food(query)`
+- `lookup_food_nutrition(query, quantity=None, unit=None)`
 
-`caloriecoach.db` is a local SQLite database created on first launch. Its tables have different sources and should not be treated as interchangeable:
+Results state whether the portion was scaled and whether review is required. A catalogue match does not establish exact nutrition or allergen safety.
 
-| Database data | Source | How it is used |
-| --- | --- | --- |
-| `foods` | Bundled [data/food_300.xlsx](data/food_300.xlsx) seed catalogue | First-choice lookup for food estimates and portion scaling. |
-| `food_logs`, `weight_entries`, `user_profiles` | Data entered or confirmed by the active local user | The sole source for that user's targets, history, and deterministic daily totals. |
-| `conversation_*`, `user_memories` | Active user's assistant conversation and reviewable saved preferences | Context only; never used as nutrition facts or shared with another user. |
-| `knowledge_sources`, `knowledge_chunks` | Curated public-health webpages: WHO, WHO/FAO, Singapore HPB, and SFA; each record keeps its original URL and refresh time | General nutrition RAG context with visible citations; never used to calculate calories or macros. |
-| Web-derived food entries | DuckDuckGo result URLs plus extraction and validation metadata retained on the saved `food_logs` record | Fallback only when the bundled food catalogue has no reliable match; users review before saving. |
+## Tests
 
-The database is local by default and `caloriecoach.db` is excluded from Git. A username scopes personal tables but is not authentication; do not use this demo-style setup for public or sensitive-health deployments.
-
-### User workspaces and data isolation
-
-`UserProfile.username` identifies a local user workspace. `FoodLog.user_id` and `WeightEntry.user_id` reference that profile, so food logs and weight data are queried and modified only within the active workspace.
-
-When an older single-user database is upgraded, its existing records are retained in the `legacy` workspace. `caloriecoach.db` is ignored by Git, so forks and clones do not include any local user data.
-
-**Privacy boundary:** a username is not authentication. Anyone who knows a username can enter that workspace. Do not use this mode for public deployment or sensitive health data; production use requires authentication and proper access control.
-
-### Assistant memory
-
-Assistant memory improves follow-up questions such as “what about dinner?” while keeping nutrition records separate from conversational context.
-
-- **Short-term memory** keeps the latest eight messages for the active assistant session. Once that window is exceeded, the older portion is stored as a bounded session summary.
-- **Long-term memory** stores only user-scoped preferences, restrictions, routines, goal context, and communication preferences. It can be created manually from **Profile → Assistant memory** or captured from clear, durable statements in a conversation.
-- **Review and deletion** are available in the Profile tab. Removing a memory does not change food logs, weight entries, profile targets, or previous assistant messages.
-- **Nutrition facts remain deterministic.** Profile fields, food logs, daily totals, and meal calculations remain the source of truth; the model only interprets that data together with the small relevant memory context.
-
-Each assistant turn is stored only after a profile exists, and every message, summary, and saved memory is filtered by the active `user_id`. A new browser session starts a new short-term conversation window, while approved long-term memories remain available to that user's workspace.
-
-### Food analysis and evidence validation
-
-```text
-User description
-  → FoodInputParser: extracts food items and explicitly stated portions only
-  → FoodSearchService: searches the local food catalogue
-  → Match found: PortionCalculator scales the nutrition values
-  → No match: DuckDuckGo search → OpenAI extracts facts from supplied search evidence
-  → NutritionNormalizer + NutritionStatistics: normalize servings and exclude outliers
-  → NutritionValidationAgent: accepts, marks uncertain, or rejects based on evidence
-  → User reviews/edits the result → MealLoggingService saves provenance and status
+```powershell
+python -m unittest discover -s tests -v
+python -m pip check
 ```
 
-The AI does not perform final aggregation, serving arithmetic, or database writes. Deterministic services handle those responsibilities. User-adjusted estimates are marked as `user_reviewed` while their original source metadata remains available.
+Tests use isolated databases and mocked providers. They cover unit conversions, intent routing, shared confirmation, missing-key startup, user switching, duplicate evidence, dietary constraints, embedding fallback, concurrent submissions, and legacy migrations. They do not modify the user's saved database or call paid AI services.
 
-### Constrained local food matching
-
-For a non-exact food name, CalorieCoach retrieves a small set of local catalogue candidates before asking a structured-output model to choose one candidate ID or return no match. Explicit cooking methods are hard constraints: for example, `steamed chicken rice` cannot retrieve or select `roasted`, `fried`, or `grilled` chicken rice. The model never receives or generates nutrition values, and the server rejects any ID outside the retrieved candidates. Only a high-confidence candidate is used automatically; otherwise the existing web-evidence path is used. This keeps the local catalogue as the sole source for locally matched calories and macros.
-
-### Daily summaries, coaching, and meal recommendations
-
-```text
-FoodLog for the active user
-  → NutritionService.daily_totals()
-  → DailyNutritionService.summary()
-  → consumed / target / remaining calories and macros
-  ├── Dashboard and Progress page
-  ├── NutritionCoachService: AI interprets deterministic data plus a bounded memory context
-  └── MealPlanningService: chooses local Food candidates and calculates nutrition deterministically
-```
-
-`NutritionOrchestrator` powers the V1 assistant by loading the active user's memory context, routing requests to food logging, daily progress, coaching, meal recommendations, or general guidance, then saving the completed turn. Paths that read or write user data receive the active user's service instances.
-
-### Nutrition knowledge retrieval (RAG)
-
-The knowledge base is shared public guidance, not a user profile or source of calorie values. It has six curated starter sources (WHO, WHO/FAO, Singapore HPB, and SFA) and can refresh their current webpage text from the Profile tab. On refresh it extracts readable content, creates overlapping chunks, stores each chunk with its source metadata, and embeds it using OpenAI when configured. At question time, it embeds the question, ranks chunks by cosine similarity, and injects the highest-scoring excerpts into the nutrition coach context. When embeddings are unavailable, it uses lexical ranking and preserves the same source links.
-
-Only the selected excerpts may support general guidance. Profile targets, food logs, portions, and daily macro totals are still calculated by deterministic services and are never supplied by the RAG corpus. The UI lists the retrieved source links, and failed refreshes preserve the last successfully indexed text.
-
-### Restaurant requests
-
-Restaurant names such as KFC are not silently matched to an unrelated food in the local catalogue. The meal planner first looks for verified local menu nutrition. When that catalogue has no verified match, a separate search agent queries official Singapore restaurant pages and an LLM extracts only menu names supported by those pages. Those results are labelled **Official menu only**: they have no calories/macros, are not compared against the user's remaining budget, cannot be logged, and are never added to the local database. If the official search cannot return a supported item, the app also shows an LLM-generated general ordering strategy based on the user's remaining budget. It is explicitly labelled non-official, has no restaurant-item or nutrition claims, and is not loggable.
-
-## Data model
-
-| Table | Purpose | Ownership |
-| --- | --- | --- |
-| `user_profiles` | Username, body data, goals, and custom targets | Unique `username` |
-| `food_logs` | Individual food entries, nutrients, sources, and validation metadata | `user_id → user_profiles.id` |
-| `weight_entries` | Daily weight and notes | Unique `user_id + recorded_on` |
-| `foods` | Shared local food catalogue | Not user-owned |
-| `conversation_messages` | User and assistant messages for the current short-term context window | `user_id → user_profiles.id` |
-| `conversation_sessions` | Bounded summary of older messages in a conversation session | `user_id → user_profiles.id` |
-| `user_memories` | Reviewable preferences, constraints, routines, goals, and communication style | `user_id → user_profiles.id` |
-| `knowledge_sources` | Curated public-health source metadata and refresh state | Shared, read-only corpus |
-| `knowledge_chunks` | Citable text passages and optional embeddings | `source_id → knowledge_sources.id` |
+GitHub Actions runs the suite on Python 3.11 and 3.13. External provider availability and real answer quality still require separate integration evaluation.

@@ -1,9 +1,15 @@
 """CalorieCoach read-only Nutrition MCP Server.
 
 Run locally with:
-    python mcp_server/nutrition_server.py
+    python -m mcp_server.nutrition_server
 """
 from __future__ import annotations
+import sys
+from pathlib import Path
+
+# Support the historical direct-script command in existing configurations too.
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mcp.server import MCPServer
 

@@ -37,12 +37,12 @@ class MealLoggingTests(unittest.TestCase):
                 session.close()
 
         self.session_factory = session_factory
-        self.nutrition = NutritionService(session_factory)
-        self.nutrition.save_profile(age=30, gender="Male", height_cm=180, weight_kg=80,
+        self.nutrition = NutritionService(session_factory, username="test-user")
+        profile = self.nutrition.save_profile(age=30, gender="Male", height_cm=180, weight_kg=80,
                                     activity_level="Moderately Active", goal="Maintenance")
         self.daily = DailyNutritionService(self.nutrition)
-        self.logger = MealLoggingService(self.daily, session_factory)
-        self.meals = MealService(session_factory)
+        self.logger = MealLoggingService(self.daily, session_factory, user_id=profile.id)
+        self.meals = MealService(session_factory, user_id=profile.id)
         self.day = date(2026, 9, 11)
 
     def tearDown(self) -> None:
@@ -51,7 +51,7 @@ class MealLoggingTests(unittest.TestCase):
     @staticmethod
     def resolved(name: str = "Egg", calories: float = 75, protein: float = 6, carbs: float = 1, fat: float = 5,
                  source_type: str = "local_database", confidence: str = "high") -> dict:
-        return {"input_food": name, "quantity": 1, "unit": "piece", "resolved": True,
+        return {"input_food": name, "quantity": 1, "unit": "piece", "resolved": True, "review_confirmed": True,
                 "source_type": source_type, "validation_status": "accepted", "confidence": confidence,
                 "confidence_score": 0.9, "sources": [{"url": "https://example.com/facts"}],
                 "matched_food": {"name": name, "calories": calories, "protein_g": protein,

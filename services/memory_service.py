@@ -49,15 +49,19 @@ class MemoryService:
             memories = list(session.scalars(
                 select(UserMemory).where(UserMemory.user_id == self.user_id).order_by(
                     UserMemory.importance.desc(), UserMemory.updated_at.desc(), UserMemory.id.desc()
-                ).limit(self.MEMORY_LIMIT)
+                )
             ))
+            # Restrictions are never evicted by a newer preference.
+            restrictions = [item for item in memories if item.category in {"restriction", "diet_preference"}]
+            memories = restrictions + [item for item in memories if item not in restrictions][:self.MEMORY_LIMIT]
             now = datetime.utcnow()
             for memory in memories:
                 memory.last_used_at = now
             return {
                 "summary": summary_row.summary if summary_row else "",
                 "recent_messages": [{"role": item.role, "content": item.content} for item in reversed(messages)],
-                "memories": [{"id": item.id, "category": item.category, "content": item.content} for item in memories],
+                "memories": [{"id": item.id, "category": item.category, "content": item.content,
+                              "confirmed": item.confirmed} for item in memories],
             }
 
     def record_turn(self, user_message: str, assistant_message: str) -> list[UserMemory]:
@@ -106,11 +110,20 @@ class MemoryService:
                 raise ValueError("Memory not found.")
             session.delete(memory)
 
+    def confirm_memory(self, memory_id: int) -> None:
+        with self.session_factory() as session:
+            memory = session.get(UserMemory, memory_id)
+            if memory is None or memory.user_id != self.user_id:
+                raise ValueError("Memory not found.")
+            memory.confirmed = True
+
     def _refresh_summary(self, session: Any) -> None:
         messages = list(session.scalars(select(ConversationMessage).where(
             ConversationMessage.user_id == self.user_id,
             ConversationMessage.session_id == self.session_id,
-        ).order_by(ConversationMessage.created_at, ConversationMessage.id)))
+        ).order_by(ConversationMessage.created_at.desc(), ConversationMessage.id.desc()).limit(
+            self.RECENT_MESSAGE_LIMIT + self.SUMMARY_MESSAGE_LIMIT)))
+        messages.reverse()
         older = messages[:-self.RECENT_MESSAGE_LIMIT]
         if not older:
             return
@@ -143,9 +156,12 @@ class MemoryService:
         if existing:
             existing.importance = max(existing.importance, importance)
             existing.source = source
+            if source == "manual":
+                existing.confirmed = True
             return existing
         memory = UserMemory(user_id=self.user_id, category=category, content=content,
-                            normalized_content=normalized, importance=importance, source=source)
+                            normalized_content=normalized, importance=importance, source=source,
+                            confirmed=source == "manual" or category not in {"restriction", "diet_preference"})
         session.add(memory)
         session.flush()
         return memory
@@ -157,7 +173,8 @@ class MemoryService:
         matches: list[tuple[str, str, int]] = []
         rules = [
             ("restriction", 3, r"(?:记住|以后|今后|always|from now on).{0,25}(?:不吃|不要推荐|avoid|no )\s*([^，。,.!！?？]{1,80})"),
-            ("restriction", 3, r"(?:我|I\s+am)\s*(?:对|have)?\s*([^，。,.!！?？]{1,60})(?:过敏|allergic|intolerant)"),
+            ("restriction", 3, r"(?:I\s+am|I'm)\s+(?:allergic\s+to|intolerant\s+of)\s+([^，。,.!！?？]{1,80})"),
+            ("restriction", 3, r"我\s*(?:对)?\s*([^，。,.!！?？]{1,60})(?:过敏|不耐受)"),
             ("diet_preference", 2, r"(?:我|I)\s*(?:喜欢|偏好|prefer|like)\s*([^，。,.!！?？]{1,80})"),
             ("communication_style", 2, r"(?:回答|回复|answer|response).{0,12}(?:简短|详细|brief|concise|detailed)"),
             ("routine", 2, r"(?:我通常|我一般|I usually)\s*([^，。,.!！?？]{3,100})"),

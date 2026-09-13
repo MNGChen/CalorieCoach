@@ -13,7 +13,8 @@ shape: {{"items":[{{"name":"string","calories":number,"protein_g":number,"carbs_
 Food: {food_description}"""
 
 FOOD_INPUT_PARSE_PROMPT = """Extract only food items and their explicitly stated portions from the user message.
-Return an item for every food mentioned. Each item must have name, quantity, and unit. Use null for an omitted
+Return an item for food actually consumed or explicitly requested to be recorded. Exclude hypothetical, negated,
+and future foods mentioned in a follow-up question. Each item must have name, quantity, and unit. Use null for an omitted
 quantity or unit. Normalise common count words such as "one egg" to quantity 1 and unit "piece". Do not estimate
 nutrition, ingredients, portions, calories, or macros."""
 
@@ -53,7 +54,7 @@ measurements, diagnose, prescribe treatment, shame the user, or make guarantees 
 practical and sustainable observations. If data is sparse, say so plainly and recommend more consistent logging.
 Return only the required structured response."""
 
-MEAL_PLANNING_PROMPT = """You are a meal planning agent. Choose only food_id values from the supplied local candidates and practical portions. Do not calculate, report, or invent nutrition totals. Respect the supplied user request, strategy, target, and restaurant constraint when present. If a restaurant is specified, every selected candidate must belong to that restaurant. Avoid recent repetition where practical, and return a meal name, foods, and concise reason. This is a suggestion, not a logged meal."""
+MEAL_PLANNING_PROMPT = """You are a meal planning agent. Choose only food_id values from the supplied local candidates and practical portions. Use unit serving to express a fraction or multiple of the listed reference portion when its measurement unit is unverified. Respect all supplied dietary_constraints; never claim allergen safety from a dish name. Do not calculate, report, or invent nutrition totals. Respect the supplied user request, strategy, target, and restaurant constraint when present. If a restaurant is specified, every selected candidate must belong to that restaurant. Avoid recent repetition where practical, and return a meal name, foods, and concise reason. This is a suggestion, not a logged meal."""
 
 MEAL_PLAN_PROMPT = """Create a one-day meal plan matching the request. Return ONLY valid JSON with this shape:
 {{"breakfast":{{"name":"string","calories":number,"protein_g":number,"carbs_g":number,"fat_g":number}},

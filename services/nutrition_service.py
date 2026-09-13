@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date
 from dataclasses import replace
 from typing import Optional
+import math
 
 from sqlalchemy import func, select
 
@@ -18,6 +19,8 @@ class NutritionService:
         self.username = username.strip().casefold() if username else None
 
     def get_profile(self) -> Optional[UserProfile]:
+        if not self.username:
+            return None
         with self.session_factory() as session:  # type: ignore[operator]
             query = select(UserProfile).order_by(UserProfile.id).limit(1)
             if self.username:
@@ -25,6 +28,13 @@ class NutritionService:
             return session.scalar(query)
 
     def save_profile(self, **values: object) -> UserProfile:
+        if not self.username:
+            raise ValueError("Select a user workspace before saving a profile.")
+        allowed = {"age", "gender", "height_cm", "weight_kg", "activity_level", "goal",
+                   "custom_calorie_goal", "custom_protein_goal_g", "custom_carbs_goal_g", "custom_fat_goal_g",
+                   "health_notice_acknowledged"}
+        if set(values) - allowed:
+            raise ValueError("Unsupported profile field.")
         with self.session_factory() as session:  # type: ignore[operator]
             query = select(UserProfile).order_by(UserProfile.id).limit(1)
             if self.username:
@@ -38,6 +48,8 @@ class NutritionService:
             else:
                 for key, value in values.items():
                     setattr(profile, key, value)
+            # Validate before commit, so invalid targets cannot break subsequent page loads.
+            self.targets(profile)
             session.flush()
             session.refresh(profile)
             return profile
@@ -53,11 +65,13 @@ class NutritionService:
         }
         if all(value is None for value in overrides.values()):
             return calculated
-        if any(value is None or value <= 0 for value in overrides.values()):
+        if any(value is None or not math.isfinite(value) or value <= 0 for value in overrides.values()):
             raise ValueError("Custom daily targets must include positive calories and all three macros.")
         return replace(calculated, **{key: round(float(value)) for key, value in overrides.items()})
 
     def daily_totals(self, day: date) -> dict[str, float]:
+        if not self.username:
+            return {"calories": 0.0, "protein_g": 0.0, "carbs_g": 0.0, "fat_g": 0.0}
         with self.session_factory() as session:  # type: ignore[operator]
             query = select(func.coalesce(func.sum(FoodLog.calories), 0),
                                          func.coalesce(func.sum(FoodLog.protein_g), 0),

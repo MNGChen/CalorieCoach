@@ -30,7 +30,7 @@ class RestaurantMenuSchema(BaseModel):
 
 class RestaurantMenuSearchService:
     """Official-domain menu discovery. Results are never written to the food catalogue."""
-    RESTAURANT_DOMAINS = {"KFC": ("kfc.com.sg",)}
+    RESTAURANT_DOMAINS = {"KFC": ("kfc.com.sg",), "McDonald's": ("mcdonalds.com.sg",)}
 
     def __init__(self, search: WebSearchProvider | None = None, chain: Any | None = None) -> None:
         self.search = search or DuckDuckGoFoodSearchProvider()

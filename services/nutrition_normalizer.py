@@ -4,19 +4,20 @@ from __future__ import annotations
 import re
 
 from services.nutrition_validation_models import NormalizedNutritionSource, NutritionSource
+from services.portion_calculator import PortionCalculator
 
 
 class NutritionNormalizer:
     _GRAM_UNITS = {"g", "gram", "grams"}
 
     def normalize(self, source: NutritionSource) -> NormalizedNutritionSource:
-        unit = source.serving_unit.strip().casefold() if source.serving_unit else None
-        if unit in self._GRAM_UNITS and source.serving_quantity:
-            factor = 100 / source.serving_quantity
-            return NormalizedNutritionSource(source, "weight:100g", "100 g", 100, "g",
+        quantity, unit = PortionCalculator.measured_quantity(source.serving_quantity or 0, source.serving_unit)
+        if unit in {"g", "ml"} and quantity:
+            factor = 100 / quantity
+            return NormalizedNutritionSource(source, f"measured:100{unit}", f"100 {unit}", 100, unit,
                                              self._scale(source.calories, factor), self._scale(source.protein_g, factor),
                                              self._scale(source.carbs_g, factor), self._scale(source.fat_g, factor),
-                                             "Normalized to 100 g")
+                                             f"Normalized to 100 {unit}")
         key = self._named_serving_key(source.serving_size)
         return NormalizedNutritionSource(source, key, source.serving_size, source.serving_quantity, unit,
                                          source.calories, source.protein_g, source.carbs_g, source.fat_g,

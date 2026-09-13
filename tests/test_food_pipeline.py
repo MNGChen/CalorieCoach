@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 from contextlib import contextmanager
 
 from services.food_analysis_service import FoodAnalysisService
@@ -29,7 +30,7 @@ class Food:
 def nutrition_source(calories: float | None, protein: float | None, carbs: float | None, fat: float | None,
                      serving_size: str = "1 bowl", quantity: float | None = 1, unit: str | None = "bowl",
                      suffix: str = "a") -> NutritionSource:
-    result = WebSearchResult(f"Source {suffix}", "Nutrition facts", f"https://example.com/{suffix}", "example.com")
+    result = WebSearchResult(f"Source {suffix}", "Nutrition facts", f"https://source-{suffix}.test/facts", f"source-{suffix}.test")
     return NutritionSource(result, serving_size, quantity, unit, calories, protein, carbs, fat)
 
 
@@ -91,7 +92,8 @@ class NutritionMcpToolTests(unittest.TestCase):
             def search(self, _session, _query): return None
         tools = NutritionCatalogTools(search=NoMatchSearch())
         # The empty local session is not used because the search stub returns immediately.
-        self.assertEqual(tools.lookup_food_nutrition("unknown food")["found"], False)
+        with patch("services.nutrition_mcp_tools.init_db"), patch("services.nutrition_mcp_tools.get_session"):
+            self.assertEqual(tools.lookup_food_nutrition("unknown food")["found"], False)
 
 
 class NutritionStatisticsTests(unittest.TestCase):
@@ -135,6 +137,19 @@ class NutritionStatisticsTests(unittest.TestCase):
         none = self._summarize([nutrition_source(None, 25, 70, 24.4)])
         self.assertEqual((one.deterministic_status, one.deterministic_confidence), ("uncertain", "medium"))
         self.assertEqual(none.deterministic_status, "rejected")
+
+    def test_duplicate_urls_do_not_create_independent_evidence(self) -> None:
+        source = nutrition_source(600, 25, 70, 24.4)
+        stats = self._summarize([source, source, source])
+        self.assertEqual(len(stats.comparable_sources), 1)
+        self.assertEqual(stats.deterministic_status, "uncertain")
+
+    def test_multiple_pages_on_one_website_cannot_claim_high_confidence(self) -> None:
+        from dataclasses import replace
+        sources = [nutrition_source(600, 25, 70, 24.4, suffix=suffix) for suffix in ("a", "b", "c")]
+        sources = [replace(source, source=replace(source.source, url=f"https://same.test/{index}"))
+                   for index, source in enumerate(sources)]
+        self.assertEqual(self._summarize(sources).deterministic_status, "uncertain")
 
 
 class _StubParser:
@@ -200,7 +215,7 @@ class FoodAnalysisValidationTests(unittest.TestCase):
     def test_three_web_sources_can_be_accepted(self) -> None:
         sources = [self.source, nutrition_source(260, 10, 33, 10, "100 g", 100, "g", "b"),
                    nutrition_source(245, 9, 30, 10, "100 g", 100, "g", "c")]
-        result = self._service([FoodInput("ramen", None, None)], {}, _StubWebSearch([source.source for source in sources]),
+        result = self._service([FoodInput("ramen", 100, "g")], {}, _StubWebSearch([source.source for source in sources]),
                                _StubExtractor(sources)).analyze("ignored")
         self.assertEqual((result[0]["validation_status"], result[0]["confidence"]), ("accepted", "high"))
 

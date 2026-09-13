@@ -6,10 +6,12 @@ from services.meal_service import MealService
 from services.nutrition_service import NutritionService
 from services.progress_analysis_service import ProgressAnalysisError, ProgressAnalysisService
 from utils.ui import apply_app_shell, empty_state, page_header, section_header
+from utils.session_state import ensure_workspace
 
 st.set_page_config(page_title="Progress | CalorieCoach", page_icon="📈", layout="wide")
 apply_app_shell()
 init_db()
+ensure_workspace(st.session_state)
 active_username = st.session_state.get("active_username")
 if not active_username:
     st.warning("Return to the home page and enter a username before viewing personal progress.")
@@ -33,11 +35,13 @@ if show_weight_form:
     with st.form("weight_form"):
         weight, day = st.columns(2)
         weight_value = weight.number_input("Weight (kg)", 30.0, 350.0, 70.0)
-        recorded_day = day.date_input("Date", date.today())
+        recorded_day = day.date_input("Date", date.today(), max_value=date.today())
         if st.form_submit_button("Save weight", type="primary"):
             service.add_weight(weight_value, recorded_day)
+            st.session_state.pop("progress_analysis", None)
             st.success("Weight saved.")
 food, weights = service.progress_data(days)
+analysis_key = (profile.id, days, str(profile.updated_at), food.to_json(date_format="iso"), weights.to_json(date_format="iso"))
 if food.empty and weights.empty:
     empty_state("📈 No trend data yet. Log food or weight to see your changes here.")
 else:
@@ -51,11 +55,11 @@ else:
                                     "carbs_g": float(target.carbs_goal_g), "fat_g": float(target.fat_goal_g)},
                     profile.goal, days,
                 )
-                st.session_state["progress_analysis_days"] = days
+                st.session_state["progress_analysis_key"] = analysis_key
         except (ProgressAnalysisError, ValueError):
             st.error("AI trend analysis is currently unavailable. Check your OpenAI API key and try again.")
     analysis = st.session_state.get("progress_analysis")
-    if analysis and st.session_state.get("progress_analysis_days") == days:
+    if analysis and st.session_state.get("progress_analysis_key") == analysis_key:
         st.info(analysis.summary)
         insight, next_step = st.columns(2)
         with insight:
@@ -72,7 +76,8 @@ else:
         metric_a.metric("Days logged", f"{len(food)} days")
         metric_b.metric("Average calories", f"{avg_calories:.0f} kcal")
         metric_c.metric("Average protein", f"{avg_protein:.0f} g")
-        st.line_chart(food.set_index("date")[["Calories", "Protein (g)"]])
+        st.line_chart(food.set_index("date")[["Calories"]])
+        st.line_chart(food.set_index("date")[["Protein (g)"]])
     if not weights.empty:
         section_header("Weight trend", "Changes between comparable measurements are more meaningful.")
         change = weights.iloc[-1]["Weight (kg)"] - weights.iloc[0]["Weight (kg)"] if len(weights) > 1 else 0
@@ -81,7 +86,7 @@ else:
         delta.metric("Change in period", f"{change:+.1f} kg")
         st.line_chart(weights.set_index("date")["Weight (kg)"])
 section_header("Food-log history", "Review each food entry in the selected period.")
-logs = service.logs(start=date.today() - timedelta(days=days - 1))
+logs = service.logs(start=date.today() - timedelta(days=days - 1), end=date.today())
 if logs:
     st.dataframe([{"Date": x.log_date, "Meal": x.meal_type, "Food": x.food_name, "Calories": x.calories, "Protein (g)": x.protein_g} for x in logs], use_container_width=True, hide_index=True)
 else:

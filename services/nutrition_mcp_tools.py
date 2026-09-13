@@ -45,7 +45,7 @@ class NutritionCatalogTools:
                 "category": getattr(food, "category", None), "serving_size": nutrition.serving_size,
                 "calories": nutrition.calories, "protein_g": nutrition.protein_g,
                 "carbs_g": nutrition.carbs_g, "fat_g": nutrition.fat_g,
-                "portion_scaled": nutrition.scaled}
+                "portion_scaled": nutrition.scaled, "requires_review": nutrition.needs_review, "portion_note": nutrition.note}
 
     def lookup_food_nutrition(self, query: str, quantity: float | None = None,
                               unit: str | None = None) -> dict[str, Any]:
@@ -66,7 +66,7 @@ class NutritionCatalogTools:
                     "source": "caloriecoach_local_catalogue", "serving_size": nutrition.serving_size,
                     "calories": nutrition.calories, "protein_g": nutrition.protein_g,
                     "carbs_g": nutrition.carbs_g, "fat_g": nutrition.fat_g,
-                    "portion_scaled": nutrition.scaled}
+                    "portion_scaled": nutrition.scaled, "requires_review": nutrition.needs_review, "portion_note": nutrition.note}
 
     @staticmethod
     def _food_summary(food: Food) -> dict[str, Any]:

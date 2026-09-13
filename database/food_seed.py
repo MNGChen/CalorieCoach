@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import hashlib
 from pathlib import Path
 
 import pandas as pd
@@ -19,14 +20,23 @@ def normalize_food_name(name: str) -> str:
 
 def seed_food_database(session: object, workbook: Path | None = None) -> None:
     """Seed once from the bundled workbook; never overwrite existing food rows."""
-    if session.scalar(select(func.count(Food.id))) > 0:  # type: ignore[attr-defined]
-        return
-
     source = workbook or BASE_DIR / "data" / "food_300.xlsx"
+    populated = session.scalar(select(func.count(Food.id))) > 0
+    if populated and not session.scalar(select(Food.id).where(Food.source_label.is_(None)).limit(1)):
+        return
     frame = _read_food_sheet(source)
+    version = hashlib.sha256(source.read_bytes()).hexdigest()
     for _, row in frame.iterrows():
         name = str(row["Food Item"]).strip()
         if not name or name.lower() == "nan":
+            continue
+        if populated:
+            existing = session.get(Food, int(row["No."]))
+            if existing is not None and existing.name == name and existing.source_label is None:
+                existing.source_label = source.name
+                existing.source_version = version
+                existing.source_quality = "unverified_catalogue"
+                existing.serving_unit = _optional_text(row.get("Serving Unit"))
             continue
         session.add(Food(  # type: ignore[attr-defined]
             id=int(row["No."]),
@@ -34,7 +44,9 @@ def seed_food_database(session: object, workbook: Path | None = None) -> None:
             normalized_name=normalize_food_name(name),
             category=_optional_text(row.get("Category")),
             serving_quantity=_number(row.get("Typical Serving (g/ml)")),
-            serving_unit="g",
+            # The bundled mixed g/ml header does not identify each row's unit.
+            serving_unit=_optional_text(row.get("Serving Unit")),
+            source_label=source.name, source_version=version, source_quality="unverified_catalogue",
             calories=_number(row.get("Energy (kcal)")) or 0,
             protein_g=_number(row.get("Protein (g)")) or 0,
             carbs_g=_number(row.get("Carbohydrates (g)")) or 0,

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 
 ACTIVITY_MULTIPLIERS = {
@@ -30,9 +31,13 @@ class CalorieCalculator:
     @staticmethod
     def calculate(age: int, gender: str, height_cm: float, weight_kg: float,
                   activity_level: str, goal: str) -> NutritionTargets:
-        if age < 18 or height_cm <= 0 or weight_kg <= 0:
+        if any(not math.isfinite(value) for value in (age, height_cm, weight_kg)) or age < 18 or height_cm <= 0 or weight_kg <= 0:
             raise ValueError("Enter a valid adult age, height, and weight.")
         base = 10 * weight_kg + 6.25 * height_cm - 5 * age
+        if gender.lower() not in {"male", "female", "other"}:
+            raise ValueError("Unsupported gender value.")
+        if activity_level not in ACTIVITY_MULTIPLIERS or goal not in {"Weight Loss", "Maintenance", "Muscle Gain"}:
+            raise ValueError("Unsupported activity level or goal.")
         bmr = base + (5 if gender.lower() == "male" else -161)
         tdee = bmr * ACTIVITY_MULTIPLIERS.get(activity_level, 1.2)
         adjustment = {"Weight Loss": -500, "Maintenance": 0, "Muscle Gain": 300}.get(goal, 0)

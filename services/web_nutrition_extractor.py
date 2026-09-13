@@ -9,6 +9,7 @@ from ai.prompts import WEB_NUTRITION_EXTRACTION_PROMPT
 from ai.openai_client import OpenAIStructuredChain, OpenAIServiceError
 from services.nutrition_validation_models import NutritionSource
 from services.web_search import WebSearchResult
+from services.source_identity import canonical_url
 
 
 class WebNutritionExtractionError(RuntimeError):
@@ -63,10 +64,15 @@ class WebNutritionExtractor:
             raise WebNutritionExtractionError("Unable to extract valid nutrition information from web results.") from exc
         result_by_url = {result.url: result for result in results}
         sources: list[NutritionSource] = []
+        seen = set()
         for item in parsed.sources:
             result = result_by_url.get(item.source_url)
             if result is None:
                 raise WebNutritionExtractionError("The nutrition extraction cited an unknown source.")
+            identity = canonical_url(item.source_url)
+            if identity in seen:
+                continue
+            seen.add(identity)
             sources.append(NutritionSource(result, item.serving_size.strip() if item.serving_size else None,
                                            item.serving_quantity, item.serving_unit.strip().casefold() if item.serving_unit else None,
                                            item.calories, item.protein_g, item.carbs_g, item.fat_g))

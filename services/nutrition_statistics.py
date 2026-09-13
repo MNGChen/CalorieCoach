@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import statistics
+import math
+from services.source_identity import canonical_url, source_host
 
 from services.nutrition_validation_models import NormalizedNutritionSource
 
@@ -47,7 +49,7 @@ class NutritionStatisticsService:
         values = (source.calories, source.protein_g, source.carbs_g, source.fat_g)
         if source.calories is None:
             return SourceCheck(source, False, "Calories are missing.")
-        if any(value is not None and value < 0 for value in values):
+        if any(value is not None and (not math.isfinite(value) or value < 0) for value in values):
             return SourceCheck(source, False, "Nutrition values cannot be negative.")
         if source.calories > self.config.max_calories or any(
             value is not None and value > self.config.max_macro_grams for value in values[1:]
@@ -61,6 +63,7 @@ class NutritionStatisticsService:
         return SourceCheck(source, True, None)
 
     def summarize(self, sources: list[NormalizedNutritionSource]) -> NutritionStatistics:
+        sources = list({canonical_url(source.nutrition.source.url): source for source in sources}.values())
         valid = [check.source for check in map(self.check_source, sources) if check.valid and check.source.comparison_key]
         if not valid:
             return self._result([], [], "rejected", "low", 0.0, "No valid sources with a comparable serving size.")
@@ -76,12 +79,13 @@ class NutritionStatisticsService:
         median_carbs = self._median(retained, "carbs_g")
         median_fat = self._median(retained, "fat_g")
         spread = self._spread(retained, "calories", median_calories)
-        if len(retained) >= 3 and spread is not None and spread <= self.config.close_spread_threshold:
+        independent_hosts = {source_host(item.nutrition.source.url) for item in retained}
+        if len(independent_hosts) >= 3 and spread is not None and spread <= self.config.close_spread_threshold:
             status, confidence, score, reason = "accepted", "high", 0.90, "Multiple comparable sources closely agree."
-        elif len(retained) >= 2 and spread is not None and spread <= self.config.moderate_spread_threshold:
+        elif len(independent_hosts) >= 2 and spread is not None and spread <= self.config.moderate_spread_threshold:
             status, confidence, score, reason = "accepted", "medium", 0.70, "Comparable sources show moderate agreement."
-        elif len(retained) == 1:
-            status, confidence, score, reason = "uncertain", "medium", 0.45, "Only one comparable nutrition source is available."
+        elif len(independent_hosts) == 1 and (spread is None or spread <= self.config.moderate_spread_threshold):
+            status, confidence, score, reason = "uncertain", "medium", 0.45, "Only one independent nutrition website is available."
         else:
             status, confidence, score, reason = "uncertain", "low", 0.25, "Comparable sources report significantly different values."
         if any(value is None for value in (median_protein, median_carbs, median_fat)):

@@ -1,4 +1,4 @@
-"""LangChain-backed extraction of food names and portions only."""
+"""Structured extraction of consumed food names and explicitly stated portions."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -29,7 +29,7 @@ class FoodItemSchema(BaseModel):
 
 
 class FoodParseResult(BaseModel):
-    """Provider-validated structured output returned by LangChain."""
+    """Provider-validated structured food extraction."""
 
     model_config = ConfigDict(extra="forbid")
 

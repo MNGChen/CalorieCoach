@@ -3,4 +3,7 @@
 __pycache__/
 *.py[cod]
 caloriecoach.db
+*.pre-v1-*.db
+*.db-wal
+*.db-shm
 .streamlit/secrets.toml

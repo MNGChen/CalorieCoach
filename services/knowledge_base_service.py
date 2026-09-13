@@ -86,7 +86,7 @@ class KnowledgeBaseService:
                         continue
                     row = KnowledgeSource(title=source.title, url=source.url, publisher=source.publisher, category=source.category)
                     session.add(row); session.flush()
-                    self._replace_chunks(session, row, STARTER_CONTENT[source.url])
+                    self._replace_chunks(session, row, STARTER_CONTENT[source.url], [])
                     added += 1
                 return added
         except Exception:
@@ -108,17 +108,29 @@ class KnowledgeBaseService:
                 content = parser.text()
                 if len(content) < 250:
                     raise ValueError("The source did not provide enough readable text.")
+                digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+                with get_session() as session:
+                    previous = session.scalar(select(KnowledgeSource).where(KnowledgeSource.url == source.url))
+                    previous_chunks = list(session.scalars(select(KnowledgeChunk).where(
+                        KnowledgeChunk.source_id == previous.id))) if previous else []
+                    needs_vectors = bool(OPENAI_API_KEY and (not previous_chunks or any(
+                        not chunk.embedding or chunk.embedding_model != OPENAI_EMBEDDING_MODEL for chunk in previous_chunks)))
+                    if previous and previous.content_hash == digest and not needs_vectors:
+                        result["unchanged"] += 1
+                        continue
+                # Network work happens before opening a write transaction.
+                vectors = self._embed(self._split(content))
                 with get_session() as session:
                     row = session.scalar(select(KnowledgeSource).where(KnowledgeSource.url == source.url))
                     digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
-                    if row and row.content_hash == digest:
+                    if row and row.content_hash == digest and not needs_vectors:
                         result["unchanged"] += 1; continue
                     if row is None:
                         row = KnowledgeSource(title=source.title, url=source.url, publisher=source.publisher, category=source.category)
                         session.add(row); session.flush()
                     row.title, row.publisher, row.category = source.title, source.publisher, source.category
                     row.content_hash, row.fetched_at = digest, datetime.utcnow()
-                    self._replace_chunks(session, row, content)
+                    self._replace_chunks(session, row, content, vectors)
                     result["updated"] += 1
             except Exception:
                 logger.warning("Could not refresh knowledge source %s", source.url, exc_info=True)
@@ -133,10 +145,16 @@ class KnowledgeBaseService:
                 rows = list(session.execute(select(KnowledgeChunk, KnowledgeSource).join(KnowledgeSource, KnowledgeChunk.source_id == KnowledgeSource.id)).all())
         except Exception:
             logger.warning("Knowledge-base retrieval failed.", exc_info=True); return []
-        query_vector = self._embed([question])[0] if OPENAI_API_KEY else None
+        # Do not pay for a query vector when this corpus has no compatible vectors.
+        has_vectors = any(chunk.embedding and chunk.embedding_model == OPENAI_EMBEDDING_MODEL for chunk, _ in rows)
+        vectors = self._embed([question]) if OPENAI_API_KEY and has_vectors else []
+        query_vector = vectors[0] if vectors else None
         scored: list[tuple[float, KnowledgeChunk, KnowledgeSource]] = []
         for chunk, source in rows:
-            score = self._cosine(query_vector, self._load_vector(chunk.embedding)) if query_vector and chunk.embedding_model == OPENAI_EMBEDDING_MODEL else self._lexical_score(question, chunk.content)
+            # Rank in one score space; mixing lexical and cosine scores is misleading.
+            score = (self._cosine(query_vector, self._load_vector(chunk.embedding))
+                     if query_vector and chunk.embedding_model == OPENAI_EMBEDDING_MODEL
+                     else (0.0 if query_vector else self._lexical_score(question, chunk.content)))
             if score > 0: scored.append((score, chunk, source))
         scored.sort(key=lambda item: item[0], reverse=True)
         # Several adjacent chunks can be relevant, but repeating the same link
@@ -160,12 +178,12 @@ class KnowledgeBaseService:
                 return {"sources": int(session.query(KnowledgeSource).count()), "chunks": int(session.query(KnowledgeChunk).count())}
         except Exception: return {"sources": 0, "chunks": 0}
 
-    def _replace_chunks(self, session: Any, source: KnowledgeSource, content: str) -> None:
+    def _replace_chunks(self, session: Any, source: KnowledgeSource, content: str,
+                        vectors: list[list[float]]) -> None:
         session.execute(delete(KnowledgeChunk).where(KnowledgeChunk.source_id == source.id))
         chunks = self._split(content)
-        vectors = self._embed(chunks)
         for ordinal, chunk in enumerate(chunks):
-            vector = vectors[ordinal] if vectors else None
+            vector = vectors[ordinal] if ordinal < len(vectors) else None
             session.add(KnowledgeChunk(source_id=source.id, ordinal=ordinal, content=chunk,
                                        embedding=json.dumps(vector) if vector else None,
                                        embedding_model=OPENAI_EMBEDDING_MODEL if vector else None))
@@ -180,7 +198,7 @@ class KnowledgeBaseService:
         if not OPENAI_API_KEY or not texts: return []
         try:
             from openai import OpenAI
-            response = OpenAI(api_key=OPENAI_API_KEY, timeout=REQUEST_TIMEOUT_SECONDS).embeddings.create(model=OPENAI_EMBEDDING_MODEL, input=texts)
+            response = OpenAI(api_key=OPENAI_API_KEY, timeout=REQUEST_TIMEOUT_SECONDS, max_retries=1).embeddings.create(model=OPENAI_EMBEDDING_MODEL, input=texts)
             return [item.embedding for item in sorted(response.data, key=lambda item: item.index)]
         except Exception:
             logger.warning("Embedding request failed; using lexical retrieval.", exc_info=True); return []

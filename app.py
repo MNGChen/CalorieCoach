@@ -16,15 +16,20 @@ from services.meal_logging_service import MealLoggingService
 from services.daily_nutrition_service import DailyNutritionService
 from services.demo_data_service import DemoDataError, DemoDataService
 from services.nutrition_coach_service import NutritionCoachService
-from services.nutrition_orchestrator import NutritionOrchestrator
 from services.memory_service import MemoryService
-from services.knowledge_base_service import AUTHORITATIVE_SOURCES, KnowledgeBaseService
+from services.knowledge_base_service import KnowledgeBaseService
 from utils.helpers import render_metric_cards
 from utils.ui import apply_app_shell, empty_state, page_header, section_header
+from utils.session_state import ensure_workspace, switch_workspace
+from utils.food_review_ui import render_food_review
+from utils.profile_ui import render_profile
+from utils.assistant_ui import render_assistant
+from services.food_review_service import new_draft
 
 st.set_page_config(page_title="CalorieCoach", page_icon="🥗", layout="wide")
 apply_app_shell()
 init_db()
+ensure_workspace(st.session_state)
 
 with st.sidebar:
     st.markdown("## 🥗 CalorieCoach")
@@ -34,7 +39,7 @@ with st.sidebar:
     if active_username:
         st.success(f"Active user: {active_username}")
         if st.button("Switch user", use_container_width=True):
-            st.session_state.pop("active_username", None)
+            switch_workspace(st.session_state, None)
             st.rerun()
     else:
         username = st.text_input("Username", placeholder="e.g. ming")
@@ -120,85 +125,7 @@ else:
 
 tab_assistant, tab_log, tab_profile = st.tabs(["✨ AI Assistant", "Food log", "Profile"])
 with tab_profile:
-    section_header("Set your targets", "Calculated recommendations are a starting point; you may also use targets from a qualified professional.")
-    st.info("CalorieCoach provides general adult nutrition estimates, not medical care. If you are pregnant, under 18, have an eating disorder, a medical condition, or take medication that affects diet, set goals with a qualified clinician.")
-    with st.form("profile_form"):
-        left, right = st.columns(2)
-        with left:
-            age = st.number_input("Age", 18, 100, value=max(18, profile.age) if profile else 30)
-            gender = st.selectbox("Gender", ["Female", "Male", "Other"], index=["Female", "Male", "Other"].index(profile.gender) if profile and profile.gender in ["Female", "Male", "Other"] else 0)
-            height = st.number_input("Height (cm)", 100.0, 250.0, value=profile.height_cm if profile else 170.0)
-        with right:
-            weight = st.number_input("Weight (kg)", 30.0, 350.0, value=profile.weight_kg if profile else 70.0)
-            activity = st.selectbox("Activity level", ["Sedentary", "Lightly Active", "Moderately Active", "Very Active", "Extra Active"], index=["Sedentary", "Lightly Active", "Moderately Active", "Very Active", "Extra Active"].index(profile.activity_level) if profile else 0)
-            goal = st.selectbox("Goal", ["Weight Loss", "Maintenance", "Muscle Gain"], index=["Weight Loss", "Maintenance", "Muscle Gain"].index(profile.goal) if profile else 0)
-        use_custom_targets = st.checkbox("Use custom daily calorie and macro targets", value=bool(profile and profile.custom_calorie_goal))
-        custom_targets: dict[str, float | None] = {"custom_calorie_goal": None, "custom_protein_goal_g": None,
-                                                    "custom_carbs_goal_g": None, "custom_fat_goal_g": None}
-        if use_custom_targets:
-            st.caption("Use targets provided by a qualified professional, or targets you have deliberately chosen. All fields are required.")
-            target_columns = st.columns(4)
-            custom_targets = {
-                "custom_calorie_goal": target_columns[0].number_input("Calories (kcal)", 800.0, 6000.0, value=float(profile.custom_calorie_goal) if profile and profile.custom_calorie_goal else 2000.0),
-                "custom_protein_goal_g": target_columns[1].number_input("Protein (g)", 1.0, 500.0, value=float(profile.custom_protein_goal_g) if profile and profile.custom_protein_goal_g else 120.0),
-                "custom_carbs_goal_g": target_columns[2].number_input("Carbs (g)", 1.0, 1000.0, value=float(profile.custom_carbs_goal_g) if profile and profile.custom_carbs_goal_g else 250.0),
-                "custom_fat_goal_g": target_columns[3].number_input("Fat (g)", 1.0, 500.0, value=float(profile.custom_fat_goal_g) if profile and profile.custom_fat_goal_g else 65.0),
-            }
-        acknowledged = st.checkbox("I understand these are estimates and not medical advice.", value=bool(profile and profile.health_notice_acknowledged))
-        if st.form_submit_button("Save profile", type="primary"):
-            if not acknowledged:
-                st.error("Please acknowledge the health and safety notice before saving a profile.")
-            else:
-                try:
-                    saved = nutrition.save_profile(age=age, gender=gender, height_cm=height, weight_kg=weight, activity_level=activity, goal=goal,
-                                                   health_notice_acknowledged=True, **custom_targets)
-                    target = nutrition.targets(saved)
-                    source = "custom" if use_custom_targets else "calculated"
-                    st.success(f"Profile saved. Your {source} daily target is {target.calorie_goal} kcal.")
-                    st.rerun()
-                except (ValueError, TypeError) as exc:
-                    st.error(str(exc))
-    if profile:
-        with st.expander("Nutrition knowledge base", expanded=False):
-            stats = knowledge_base.stats()
-            st.caption(f"{stats['sources']} curated public-health sources · {stats['chunks']} searchable chunks. "
-                       "The starter set is local; refresh downloads the current text from the listed sources.")
-            if st.button("Refresh authoritative web sources", key="refresh_knowledge_base"):
-                with st.spinner("Refreshing and indexing public nutrition sources…"):
-                    result = knowledge_base.refresh_authoritative_sources()
-                if result["updated"]:
-                    st.success(f"Updated {result['updated']} source(s).")
-                if result["failed"]:
-                    st.warning(f"{result['failed']} source(s) could not be refreshed; existing indexed content was kept.")
-                if result.get("skipped"):
-                    st.caption(f"{result['skipped']} source(s) retain their reviewed starter content because their publisher blocks automated refreshes.")
-                if not result["updated"] and not result["failed"] and not result.get("skipped"):
-                    st.info("Sources are already current.")
-            for source in AUTHORITATIVE_SOURCES:
-                st.markdown(f"- [{source.publisher}: {source.title}]({source.url})")
-        with st.expander("Assistant memory", expanded=False):
-            st.caption("The assistant only uses these saved preferences and constraints alongside your current nutrition data. You can edit or remove them at any time.")
-            stored_memories = assistant_memory.list_memories()
-            if stored_memories:
-                for memory in stored_memories:
-                    left, right = st.columns([6, 1])
-                    left.write(f"**{memory.category.replace('_', ' ').title()}** — {memory.content}")
-                    if right.button("Remove", key=f"delete_memory_{memory.id}"):
-                        assistant_memory.delete_memory(memory.id)
-                        st.rerun()
-            else:
-                st.caption("No long-term assistant memories saved yet.")
-            with st.form("add_assistant_memory", clear_on_submit=True):
-                memory_category = st.selectbox("Memory type", ["diet_preference", "restriction", "routine", "goal_context", "communication_style"],
-                                               format_func=lambda value: value.replace("_", " ").title())
-                memory_content = st.text_input("Add a preference or constraint", placeholder="e.g. I prefer quick, dairy-free dinners.")
-                if st.form_submit_button("Save memory"):
-                    try:
-                        assistant_memory.add_memory(memory_category, memory_content)
-                        st.success("Assistant memory saved.")
-                        st.rerun()
-                    except ValueError as exc:
-                        st.error(str(exc))
+    render_profile(profile, nutrition, knowledge_base, assistant_memory)
 
 with tab_log:
     section_header("Log this meal", "Use manual entry when nutrition is known, or AI lookup for a quick estimate.")
@@ -207,116 +134,32 @@ with tab_log:
         description = st.text_area("What did you eat?", placeholder="I ate 200g chicken breast and one egg", key="log_food_description")
         ai_columns = st.columns(2)
         ai_meal_type = ai_columns[0].selectbox("Meal type (optional)", ["Unknown", "Breakfast", "Lunch", "Dinner", "Snack"], key="ai_meal_type")
-        ai_log_day = ai_columns[1].date_input("Log date", date.today(), key="ai_log_day")
+        ai_log_day = ai_columns[1].date_input("Log date", date.today(), max_value=date.today(), key="ai_log_day")
         if st.button("Find nutrition", type="primary"):
-            if not description.strip():
+            if not profile:
+                st.error("Complete your profile before preparing a food log.")
+            elif not description.strip():
                 st.error("Describe at least one food before analysing it.")
             else:
-                st.session_state.pop("food_analysis_result", None)
+                st.session_state.pop("pending_food_draft", None)
                 try:
                     with st.status("Starting nutrition lookup…", expanded=True) as status:
                         def show_food_status(message: str) -> None:
                             status.write(message)
                             status.update(label=message, state="running")
-                        st.session_state["food_analysis_result"] = FoodAnalysisService().analyze(description, show_food_status)
-                        st.session_state["food_analysis_request_id"] = str(uuid4())
+                        items = FoodAnalysisService().analyze(description, show_food_status)
+                        st.session_state["pending_food_draft"] = {
+                            **new_draft(owner_id, description, items, ai_log_day, ai_meal_type), "origin": "lookup"}
                         status.update(label="Nutrition lookup complete", state="complete")
                 except (AIServiceError, ValueError) as exc:
                     st.error(str(exc))
-        result = st.session_state.get("food_analysis_result")
-        if result:
-            items = result
-            if not items:
-                st.error("No food items were returned. Try a more specific description.")
-            else:
-                display_items = [{"Input food": item["input_food"], "Source": item["source_type"],
-                                  "Resolved": item["resolved"],
-                                  "Food": item["matched_food"]["name"] if item["resolved"] else "Not found",
-                                  "Serving": item["matched_food"]["serving_size"] if item["resolved"] else "",
-                                  "Calories": item["matched_food"]["calories"] if item["resolved"] else "",
-                                  "Protein (g)": item["matched_food"]["protein_g"] if item["resolved"] else "",
-                                  "Carbs (g)": item["matched_food"]["carbs_g"] if item["resolved"] else "",
-                                  "Fat (g)": item["matched_food"]["fat_g"] if item["resolved"] else ""} for item in items]
-                st.dataframe(display_items, use_container_width=True, hide_index=True)
-                for item_index, item in enumerate(items):
-                    if candidates := item.get("local_candidates"):
-                        st.info(f"{item['input_food']} matches more than one local dish. Choose the dish you ate; nutrition values below come directly from the selected catalogue record.")
-                        selected_id = st.selectbox(
-                            f"Confirm local match for {item['input_food']}",
-                            [candidate["id"] for candidate in candidates],
-                            format_func=lambda food_id: next(
-                                f"{candidate['name']} — {candidate['calories']:.0f} kcal · {candidate['protein_g']:.1f}g protein"
-                                for candidate in candidates if candidate["id"] == food_id
-                            ),
-                            key=f"local_food_candidate_{item_index}_{item['input_food']}",
-                        )
-                        if st.button("Use selected local dish", key=f"confirm_local_food_{item_index}"):
-                            selected = next(candidate for candidate in candidates if candidate["id"] == selected_id)
-                            confirmed = {**item, "resolved": True, "matched": True,
-                                         "validation_status": "user_confirmed", "confidence": "user_confirmed",
-                                         "confidence_score": None, "matched_food": selected}
-                            confirmed.pop("local_candidates", None)
-                            st.session_state["food_analysis_result"] = [
-                                confirmed if index == item_index else current for index, current in enumerate(items)
-                            ]
-                            st.rerun()
-                st.caption("Review estimates before saving. Changing a value marks that item as user-reviewed; original sources remain attached to the log.")
-                resolved_items = [item for item in items if item["resolved"]]
-                review_rows = []
-                for item in resolved_items:
-                    food = item["matched_food"] or {}
-                    review_rows.append({"Food": food.get("name", item["input_food"]), "Quantity": item.get("quantity"),
-                                        "Unit": item.get("unit") or "", "Calories": food.get("calories"),
-                                        "Protein (g)": food.get("protein_g"), "Carbs (g)": food.get("carbs_g"),
-                                        "Fat (g)": food.get("fat_g"), "Source": item.get("source_type", "")})
-                reviewed_rows = []
-                if review_rows:
-                    reviewed_rows = st.data_editor(review_rows, key="food_analysis_review", use_container_width=True,
-                                                   hide_index=True, disabled=["Source"], num_rows="fixed",
-                                                   column_config={"Calories": st.column_config.NumberColumn(min_value=0.0),
-                                                                  "Protein (g)": st.column_config.NumberColumn(min_value=0.0),
-                                                                  "Carbs (g)": st.column_config.NumberColumn(min_value=0.0),
-                                                                  "Fat (g)": st.column_config.NumberColumn(min_value=0.0),
-                                                                  "Quantity": st.column_config.NumberColumn(min_value=0.0)})
-                for item in items:
-                    if item["source_type"] == "web" and item["resolved"]:
-                        st.caption("Web source: " + ", ".join(source["url"] for source in item["sources"]) + f" · validation: {item.get('validation_status', 'unknown')} · confidence: {item.get('confidence', 'unknown')}")
-                    elif not item["resolved"]:
-                        st.caption(f"{item['input_food']}: {item['reason']}")
-                if not review_rows:
-                    st.warning("No reliable nutrition estimate was found, so nothing can be added to the log. Try a more specific food name or add it manually.")
-                if review_rows and st.button("Add resolved foods to today's log", type="primary"):
-                    try:
-                        reviewed_items = []
-                        for item, original_row, row in zip(resolved_items, review_rows, reviewed_rows):
-                            updated = {**item, "quantity": row["Quantity"] or None, "unit": str(row["Unit"]).strip() or None}
-                            if updated["resolved"]:
-                                updated["matched_food"] = {**item["matched_food"], "name": str(row["Food"]).strip(),
-                                                          "calories": row["Calories"], "protein_g": row["Protein (g)"],
-                                                          "carbs_g": row["Carbs (g)"], "fat_g": row["Fat (g)"]}
-                                if row != original_row:
-                                    updated["validation_status"] = "user_reviewed"
-                                    updated["review_note"] = "Nutrition estimate reviewed or adjusted by user before saving."
-                            reviewed_items.append(updated)
-                        response = meal_logging.save_resolved(description, reviewed_items,
-                                                              None if ai_meal_type == "Unknown" else ai_meal_type,
-                                                              ai_log_day, st.session_state.get("food_analysis_request_id"))
-                        del st.session_state["food_analysis_result"]
-                        st.session_state.pop("food_analysis_request_id", None)
-                        daily = response["daily_summary"]
-                        st.session_state["food_log_saved_message"] = (
-                            f"Saved {len(response['meal']['items'])} food(s). "
-                            f"Today's consumed calories: {daily['consumed']['calories']:.0f} kcal."
-                        )
-                        st.rerun()
-                    except (TypeError, ValueError) as exc:
-                        st.error(f"Could not save the estimates: {exc}")
+        render_food_review(meal_logging, owner_id, "lookup")
     with manual_log_tab:
         with st.form("manual_log"):
             cols = st.columns(3)
             name = cols[0].text_input("Food / meal")
             meal_type = cols[1].selectbox("Meal type", ["Breakfast", "Lunch", "Dinner", "Snack"])
-            log_day = cols[2].date_input("Date", date.today())
+            log_day = cols[2].date_input("Date", date.today(), max_value=date.today())
             calories = cols[0].number_input("Calories", 0.0, 5000.0)
             protein = cols[1].number_input("Protein (g)", 0.0, 500.0)
             carbs = cols[2].number_input("Carbs (g)", 0.0, 1000.0)
@@ -347,7 +190,7 @@ with tab_log:
             edit_columns = st.columns(3)
             edit_name = edit_columns[0].text_input("Food", editing.food_name)
             edit_meal_type = edit_columns[1].selectbox("Meal", ["Breakfast", "Lunch", "Dinner", "Snack", "Unknown"], index=["Breakfast", "Lunch", "Dinner", "Snack", "Unknown"].index(editing.meal_type) if editing.meal_type in ["Breakfast", "Lunch", "Dinner", "Snack", "Unknown"] else 4)
-            edit_day = edit_columns[2].date_input("Date", editing.log_date)
+            edit_day = edit_columns[2].date_input("Date", editing.log_date, max_value=date.today())
             edit_quantity = edit_columns[0].number_input("Quantity", 0.0, 10000.0, value=float(editing.quantity or 0.0))
             edit_unit = edit_columns[1].text_input("Unit", editing.unit or "")
             edit_calories = edit_columns[2].number_input("Calories", 0.0, 10000.0, value=float(editing.calories))
@@ -368,77 +211,4 @@ with tab_log:
         empty_state("There are no food logs to edit today.")
 
 with tab_assistant:
-    section_header("Your AI nutrition assistant", "Ask about today's progress, get coaching, log a meal, or receive a next-meal suggestion based on your remaining daily budget.")
-    st.info("Start here for personalised help. Recommendations use your profile and today's logged food; they are suggestions, not medical advice.")
-    st.caption("What would you like help with?")
-    quick_prompts = [
-        ("🍽️ Log food", "I ate chicken rice and an iced coffee."),
-        ("📊 Today's progress", "How many calories do I have left today?"),
-        ("💪 Nutrition advice", "Do I need more protein today?"),
-        ("✨ Recommend my next meal", "What should I eat for dinner?"),
-    ]
-    quick_columns = st.columns(4)
-    for column, (label, prompt) in zip(quick_columns, quick_prompts):
-        if column.button(label, key=f"quick_prompt_{label}", use_container_width=True):
-            st.session_state["assistant_message"] = prompt
-    assistant_message = st.text_area(
-        "Ask CalorieCoach",
-        placeholder="For example: I had chicken rice for lunch — what should I eat for dinner?",
-        key="assistant_message",
-    )
-    if st.button("Send message", type="primary"):
-        if not assistant_message.strip(): st.error("Enter a message first.")
-        else:
-            try:
-                with st.status("Starting your request…", expanded=True) as status:
-                    def show_assistant_status(message: str) -> None:
-                        status.write(message)
-                        status.update(label=message, state="running")
-                    st.session_state["assistant_response"] = NutritionOrchestrator(
-                        meal_logging=meal_logging, daily=daily_nutrition, coach=coach,
-                        memory=assistant_memory,
-                        on_status=show_assistant_status,
-                    ).handle(assistant_message)
-                    status.update(label="Response ready", state="complete")
-            except Exception:
-                st.error("The assistant is currently unavailable.")
-    if response := st.session_state.get("assistant_response"):
-        st.subheader("Assistant response")
-        st.write(response["message"])
-        data = response["data"]
-        if saved_memories := data.get("saved_memories"):
-            st.caption("Saved to assistant memory: " + "; ".join(item["content"] for item in saved_memories))
-        if menu := data.get("restaurant_menu"):
-            st.subheader(f"Official {menu['restaurant']} menu search")
-            if menu["available"]:
-                st.info("These are official menu options only. Their nutrition values are not verified, so they are not compared with your daily targets and cannot be saved as a food log.")
-                st.dataframe([{"Menu item": item["name"], "Why it may fit": item["reason"], "Nutrition status": "Not verified"}
-                              for item in menu["items"]], use_container_width=True, hide_index=True)
-            else:
-                st.warning(menu["reason"])
-            if menu["sources"]:
-                st.caption("Official menu sources")
-                for source in menu["sources"]:
-                    st.markdown(f"- [{source['title']}]({source['url']})")
-        advice = data.get("coach", data)
-        if advice.get("available"):
-            if data.get("llm_fallback"):
-                st.info("AI-generated general ordering strategy — not an official restaurant menu or verified nutrition data.")
-            if recommendation := advice.get("recommendation"):
-                st.write(recommendation)
-            if advice.get("avoid_or_limit"):
-                st.caption("Consider limiting: " + ", ".join(advice["avoid_or_limit"]))
-            if budget := advice.get("target_for_next_meal"):
-                st.caption(f"Remaining daily budget: {budget['calories']:.0f} kcal · {budget['protein_g']:.0f}g protein · {budget['carbs_g']:.0f}g carbs · {budget['fat_g']:.0f}g fat")
-            if sources := advice.get("knowledge_sources"):
-                st.caption("Knowledge sources used")
-                for source in sources:
-                    st.markdown(f"- [{source['publisher']}: {source['title']}]({source['url']})")
-        if meal_plan := data.get("meal_plan"):
-            st.caption("Suggested foods")
-            st.dataframe(meal_plan.get("foods", []), use_container_width=True, hide_index=True)
-        if summary := data.get("daily_summary"):
-            with st.expander("View daily nutrition summary"):
-                st.json(summary)
-        with st.expander("View response details"):
-            st.json(data)
+    render_assistant(owner_id, meal_logging, daily_nutrition, coach, assistant_memory)

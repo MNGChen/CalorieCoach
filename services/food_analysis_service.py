@@ -40,29 +40,43 @@ class FoodAnalysisService:
         inputs = self.parser.parse(message)
         self._notify(on_status, "Checking your foods against the local nutrition database…")
         results: list[dict[str, Any]] = []
-        with self.session_factory() as session:
-            for input_food in inputs:
-                logger.info("Food detected: %s", input_food.name)
-                food, local_candidates = self._local_match(session, input_food)
-                if food is None:
-                    if local_candidates:
-                        results.append(self._needs_local_confirmation(input_food, local_candidates))
-                        continue
-                    logger.info("Local DB search: no reliable match. Using web fallback.")
-                    self._notify(on_status, f"No local match for {input_food.name}; checking trusted web sources…")
-                    results.append(self._resolve_web(input_food, on_status))
+        catalogue = None
+        if isinstance(self.search, FoodSearchService):
+            with self.session_factory() as session:
+                catalogue = list(session.scalars(select(Food)))
+        for input_food in inputs:
+            # Retrieve detached candidates before any external model or web request.
+            stub_match = None
+            if catalogue is None:
+                with self.session_factory() as session:
+                    stub_match = self.search.search(session, input_food.name)
+            logger.info("Food detected: %s", input_food.name)
+            food, local_candidates = self._local_match(catalogue, input_food) if catalogue is not None else (stub_match, [])
+            if food is None:
+                if local_candidates:
+                    results.append(self._needs_local_confirmation(input_food, local_candidates))
                     continue
-                nutrition = self.calculator.calculate(food, input_food)
-                logger.info("Local DB search: matched %s", food.name)
-                self._notify(on_status, f"Found {food.name} in the local nutrition database.")
-                results.append({"input_food": input_food.name, "quantity": input_food.quantity, "unit": input_food.unit,
-                                "matched": True, "resolved": True,
-                                "source_type": "local_database", "validation_status": "accepted",
-                                "confidence": "high", "confidence_score": 1.0, "sources": [], "matched_food": {
-                    "id": food.id, "name": food.name, "serving_size": nutrition.serving_size,
-                    "calories": nutrition.calories, "protein_g": nutrition.protein_g,
-                    "carbs_g": nutrition.carbs_g, "fat_g": nutrition.fat_g,
-                }})
+                logger.info("Local DB search: no reliable match. Using web fallback.")
+                self._notify(on_status, f"No local match for {input_food.name}; checking trusted web sources…")
+                results.append(self._resolve_web(input_food, on_status))
+                continue
+            nutrition = self.calculator.calculate(food, input_food)
+            logger.info("Local DB search: matched %s", food.name)
+            self._notify(on_status, f"Found {food.name} in the local nutrition database.")
+            results.append({"input_food": input_food.name, "quantity": input_food.quantity, "unit": input_food.unit,
+                            "matched": True, "resolved": True,
+                            "source_type": "local_database", "validation_status": "needs_review" if nutrition.needs_review else "accepted",
+                            "confidence": "low" if nutrition.needs_review else "medium", "confidence_score": None,
+                            "match_confidence": "high", "portion_note": nutrition.note,
+                            "portion_status": "needs_review" if nutrition.needs_review else "measured",
+                            "nutrition_quality": getattr(food, "source_quality", None) or "unverified",
+                            "source_label": getattr(food, "source_label", None),
+                            "source_version": getattr(food, "source_version", None),
+                            "sources": [], "matched_food": {
+                "id": food.id, "name": food.name, "serving_size": nutrition.serving_size,
+                "calories": nutrition.calories, "protein_g": nutrition.protein_g,
+                "carbs_g": nutrition.carbs_g, "fat_g": nutrition.fat_g,
+            }})
         self._notify(on_status, "Nutrition estimates are ready for your review.")
         return results
 
@@ -72,7 +86,7 @@ class FoodAnalysisService:
         # Keep the existing narrow test and MCP seams working with custom search stubs.
         if not isinstance(self.search, FoodSearchService):
             return self.search.search(session, input_name), []
-        catalogue = list(session.scalars(select(Food)))
+        catalogue = session if isinstance(session, list) else list(session.scalars(select(Food)))
         exact = self.search.exact_match(catalogue, input_name)
         if exact:
             return exact, []
@@ -94,6 +108,9 @@ class FoodAnalysisService:
         for food in candidates:
             nutrition = self.calculator.calculate(food, input_food)
             details.append({"id": food.id, "name": food.name, "serving_size": nutrition.serving_size,
+                            "portion_note": nutrition.note, "source_label": getattr(food, "source_label", None),
+                            "source_version": getattr(food, "source_version", None),
+                            "nutrition_quality": getattr(food, "source_quality", None) or "unverified",
                             "calories": nutrition.calories, "protein_g": nutrition.protein_g,
                             "carbs_g": nutrition.carbs_g, "fat_g": nutrition.fat_g})
         return details
@@ -142,7 +159,8 @@ class FoodAnalysisService:
         logger.info("Nutrition extracted and validated. Source: web")
         return {"input_food": input_food.name, "quantity": input_food.quantity, "unit": input_food.unit,
                 "matched": False, "resolved": True, "source_type": "web",
-                "validation_status": decision.status, "confidence": decision.confidence,
+                "validation_status": "needs_review" if nutrition.needs_review else decision.status, "confidence": decision.confidence,
+                "portion_note": nutrition.note, "portion_status": "needs_review" if nutrition.needs_review else "measured",
                 "confidence_score": decision.confidence_score, "sources": source_details,
                 "matched_food": {"name": input_food.name, "serving_size": nutrition.serving_size,
                                  "calories": nutrition.calories, "protein_g": nutrition.protein_g,

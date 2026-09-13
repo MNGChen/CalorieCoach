@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, Float, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from database.database import Base
@@ -35,7 +35,7 @@ class FoodLog(Base):
     __tablename__ = "food_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user_profiles.id"), nullable=False, index=True)
     meal_type: Mapped[str] = mapped_column(String(20), default="Snack")
     meal_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
     original_input: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -52,16 +52,28 @@ class FoodLog(Base):
     confidence: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     confidence_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     source_urls: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_metadata: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     idempotency_key: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
     logged_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     log_date: Mapped[date] = mapped_column(Date, default=date.today, index=True)
+
+
+class MealSubmission(Base):
+    """One reservation per user submission; guarantees idempotency across concurrent writers."""
+    __tablename__ = "meal_submissions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user_profiles.id"), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(100))
+    meal_id: Mapped[str] = mapped_column(String(36))
+    payload_hash: Mapped[str] = mapped_column(String(64))
+    __table_args__ = (UniqueConstraint("user_id", "request_id", name="uq_meal_submission_request"),)
 
 
 class WeightEntry(Base):
     __tablename__ = "weight_entries"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user_profiles.id"), nullable=False, index=True)
     weight_kg: Mapped[float] = mapped_column(Float)
     recorded_on: Mapped[date] = mapped_column(Date, default=date.today, index=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -75,7 +87,7 @@ class ConversationMessage(Base):
     __tablename__ = "conversation_messages"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user_profiles.id"), index=True)
     session_id: Mapped[str] = mapped_column(String(36), index=True)
     role: Mapped[str] = mapped_column(String(20))
     content: Mapped[str] = mapped_column(Text)
@@ -90,7 +102,7 @@ class ConversationSession(Base):
     __tablename__ = "conversation_sessions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user_profiles.id"), index=True)
     session_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
     summary: Mapped[str] = mapped_column(Text, default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -102,12 +114,13 @@ class UserMemory(Base):
     __tablename__ = "user_memories"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user_profiles.id"), index=True)
     category: Mapped[str] = mapped_column(String(40), index=True)
     content: Mapped[str] = mapped_column(Text)
     normalized_content: Mapped[str] = mapped_column(String(500))
     importance: Mapped[int] = mapped_column(Integer, default=1)
     source: Mapped[str] = mapped_column(String(30), default="conversation")
+    confirmed: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -136,7 +149,7 @@ class KnowledgeChunk(Base):
     __tablename__ = "knowledge_chunks"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    source_id: Mapped[int] = mapped_column(Integer, index=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("knowledge_sources.id", ondelete="CASCADE"), index=True)
     ordinal: Mapped[int] = mapped_column(Integer)
     content: Mapped[str] = mapped_column(Text)
     embedding: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -158,6 +171,11 @@ class Food(Base):
     category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     serving_quantity: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     serving_unit: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    source_label: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    source_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    source_region: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    source_quality: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    dietary_tags: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     calories: Mapped[float] = mapped_column(Float)
     protein_g: Mapped[float] = mapped_column(Float, default=0)
     carbs_g: Mapped[float] = mapped_column(Float, default=0)

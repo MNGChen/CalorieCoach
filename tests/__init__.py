@@ -1,0 +1,1 @@
+"""CalorieCoach regression tests."""
