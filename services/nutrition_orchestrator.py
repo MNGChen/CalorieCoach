@@ -110,7 +110,7 @@ class NutritionOrchestrator:
         except Exception as exc:
             logger.warning("Meal planning did not produce a verified plan (%s).", type(exc).__name__)
             return self._response(state, advice["recommendation"], {"coach": advice,
-                                  "planning_warning": "No meal meeting the portion, budget and dietary checks was found. General guidance is shown."},
+                                  "planning_warning": "No verified local meal meets the current portion and budget checks. This meal idea is general guidance; its nutrition has not been verified."},
                                   ["meal_planner_fallback"])
 
     def _general(self, state):

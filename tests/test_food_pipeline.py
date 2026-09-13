@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 from services.food_analysis_service import FoodAnalysisService
 from services.food_input_parser import FoodInput, FoodInputParser
@@ -16,7 +17,7 @@ from services.nutrition_validation_service import NutritionValidationService
 from services.portion_calculator import PortionCalculator
 from services.nutrition_mcp_tools import NutritionCatalogTools
 from services.web_nutrition_extractor import WebNutritionExtractionError, WebNutritionExtractor
-from services.web_search import WebSearchError, WebSearchResult
+from services.web_search import DuckDuckGoFoodSearchProvider, OpenAIWebSearchProvider, WebSearchError, WebSearchResult
 
 
 class Food:
@@ -50,6 +51,59 @@ class FoodParserTests(unittest.TestCase):
     def test_missing_quantity(self) -> None:
         self.assertEqual(FoodInputParser.validate({"items": [{"name": "egg", "quantity": None, "unit": None}]}),
                          [FoodInput("egg", None, None)])
+
+
+class DuckDuckGoSearchTests(unittest.TestCase):
+    @patch("services.web_search.requests.get")
+    def test_uses_browser_headers_and_reports_a_block_page(self, get: Mock) -> None:
+        response = Mock(text='<div class="anomaly-modal"></div>')
+        response.raise_for_status.return_value = None
+        get.return_value = response
+
+        with self.assertRaisesRegex(WebSearchError, "blocking automated searches"):
+            DuckDuckGoFoodSearchProvider().search_web("chicken rice nutrition")
+
+        self.assertIn("Mozilla/5.0", get.call_args.kwargs["headers"]["User-Agent"])
+
+
+class OpenAIWebSearchTests(unittest.TestCase):
+    def test_uses_one_low_context_search_and_keeps_only_tool_sources(self) -> None:
+        parsed = SimpleNamespace(results=[SimpleNamespace(title="Chicken rice nutrition", snippet="650 calories per serving", url="https://nutrition.test/chicken-rice")])
+        response = SimpleNamespace(
+            output_parsed=parsed,
+            output=[SimpleNamespace(type="web_search_call", action=SimpleNamespace(
+                sources=[SimpleNamespace(url="https://nutrition.test/chicken-rice")])),
+            ],
+        )
+        client = SimpleNamespace(responses=SimpleNamespace(parse=Mock(return_value=response)))
+
+        results = OpenAIWebSearchProvider(client).search_food_web("chicken rice")
+
+        self.assertEqual(results[0].url, "https://nutrition.test/chicken-rice")
+        request = client.responses.parse.call_args.kwargs
+        self.assertEqual((request["tool_choice"], request["max_tool_calls"], request["tools"][0]["search_context_size"]),
+                         ("required", 1, "low"))
+
+    def test_rejects_model_urls_that_were_not_returned_by_search(self) -> None:
+        parsed = SimpleNamespace(results=[SimpleNamespace(title="Chicken rice", snippet="650 calories", url="https://made-up.test/facts")])
+        response = SimpleNamespace(
+            output_parsed=parsed,
+            output=[SimpleNamespace(type="web_search_call", action=SimpleNamespace(
+                sources=[SimpleNamespace(url="https://nutrition.test/chicken-rice")])),
+            ],
+        )
+        client = SimpleNamespace(responses=SimpleNamespace(parse=Mock(return_value=response)))
+
+        with self.assertRaisesRegex(WebSearchError, "unverified sources"):
+            OpenAIWebSearchProvider(client).search_food_web("chicken rice")
+
+    def test_direct_nutrition_skips_a_second_ai_extraction(self) -> None:
+        result = WebSearchResult("Chicken rice", "650 calories per serving", "https://nutrition.test/chicken-rice",
+                                 "nutrition.test", "1 plate", 1, "plate", 650, 30, 75, 18, True)
+
+        sources = WebNutritionExtractor(Mock()).extract("chicken rice", [result])
+
+        self.assertEqual((sources[0].calories, sources[0].protein_g), (650, 30))
 
 
 class FoodSearchTests(unittest.TestCase):

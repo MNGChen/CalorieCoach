@@ -52,7 +52,9 @@ def render_assistant(owner_id, meal_logging, daily_nutrition, coach, assistant_m
                 st.error("The assistant is currently unavailable.")
     if response := st.session_state.get("assistant_response"):
         st.subheader("Assistant response")
-        st.write(response["message"])
+        with st.container(border=True):
+            st.caption("PERSONALISED GUIDANCE")
+            st.write(response["message"])
         data = response["data"]
         if warning := data.get("planning_warning"):
             st.warning(warning)
@@ -74,7 +76,7 @@ def render_assistant(owner_id, meal_logging, daily_nutrition, coach, assistant_m
         if advice.get("available"):
             if data.get("llm_fallback"):
                 st.info("AI-generated general ordering strategy — not an official restaurant menu or verified nutrition data.")
-            if recommendation := advice.get("recommendation"):
+            if (recommendation := advice.get("recommendation")) and recommendation != response["message"]:
                 st.write(recommendation)
             if advice.get("avoid_or_limit"):
                 st.caption("Consider limiting: " + ", ".join(advice["avoid_or_limit"]))

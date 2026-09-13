@@ -54,6 +54,10 @@ class WebNutritionExtractor:
     def extract(self, food_name: str, results: list[WebSearchResult]) -> list[NutritionSource]:
         if not results:
             raise WebNutritionExtractionError("Web search returned no results.")
+        if any(result.nutrition_extracted for result in results):
+            return [NutritionSource(result, result.serving_size, result.serving_quantity, result.serving_unit,
+                                    result.calories, result.protein_g, result.carbs_g, result.fat_g)
+                    for result in results if result.nutrition_extracted]
         search_text = "\n\n".join(
             f"Title: {result.title}\nSnippet: {result.snippet}\nURL: {result.url}" for result in results
         )

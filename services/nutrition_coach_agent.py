@@ -18,7 +18,7 @@ class CoachAdviceSchema(BaseModel):
 
     summary: str = Field(min_length=1, max_length=400)
     priority: str = Field(min_length=1, max_length=80)
-    recommendation: str = Field(min_length=1, max_length=400)
+    recommendation: str = Field(min_length=1, max_length=380)
     avoid_or_limit: list[str] = Field(default_factory=list, max_length=5)
     reasoning_summary: str = Field(min_length=1, max_length=400)
 

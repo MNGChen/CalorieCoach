@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 
 from services.meal_planning_agent import MealPlanningAgentError
 from services.meal_planning_service import MealPlanningService, RestaurantMenuUnavailable
+from services.nutrition_orchestrator import NutritionOrchestrator
 
 
 class _Session:
@@ -40,6 +42,22 @@ class MealPlanningServiceTests(unittest.TestCase):
         with self.assertRaises(RestaurantMenuUnavailable):
             service.recommend({"target_for_next_meal": {"calories": 500.0}, "priority": "protein"},
                               user_request="I want KFC, any suggestion?")
+
+    def test_fallback_labels_the_llm_meal_idea_as_unverified(self) -> None:
+        advice = {"available": True, "recommendation": "Try tofu with steamed greens and brown rice.",
+                  "recent_foods": [], "dietary_constraints": {}}
+
+        class Router:
+            def route(self, _message): return SimpleNamespace(intent="meal_recommendation", follow_up_request=None)
+        class Coach:
+            def get_nutrition_advice(self, *_args, **_kwargs): return advice
+        class Planner:
+            def recommend(self, *_args, **_kwargs): raise MealPlanningAgentError("No checked meal.")
+
+        response = NutritionOrchestrator(router=Router(), coach=Coach(), planner=Planner()).handle("What for dinner?")
+
+        self.assertEqual(response["message"], advice["recommendation"])
+        self.assertIn("nutrition has not been verified", response["data"]["planning_warning"])
 
 
 if __name__ == "__main__":

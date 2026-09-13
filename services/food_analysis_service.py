@@ -14,7 +14,7 @@ from services.food_match_agent import FoodMatchAgent, FoodMatchAgentError
 from services.food_search_service import FoodSearchService
 from services.portion_calculator import PortionCalculator, ServingNutrition
 from services.web_nutrition_extractor import WebNutritionExtractionError, WebNutritionExtractor
-from services.web_search import DuckDuckGoFoodSearchProvider, WebSearchError, WebSearchProvider
+from services.web_search import OpenAIWebSearchProvider, WebSearchError, WebSearchProvider
 from services.nutrition_validation_service import NutritionValidationService
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ class FoodAnalysisService:
         self.parser = parser or FoodInputParser()
         self.search = search or FoodSearchService()
         self.calculator = calculator or PortionCalculator()
-        self.web_search = web_search or DuckDuckGoFoodSearchProvider()
+        self.web_search = web_search or OpenAIWebSearchProvider()
         self.web_extractor = web_extractor or WebNutritionExtractor()
         self.validator = validator or NutritionValidationService()
         self.matcher = matcher or FoodMatchAgent()
@@ -127,9 +127,9 @@ class FoodAnalysisService:
         try:
             results = self.web_search.search_food_web(input_food.name)
             logger.info("Web results retrieved: %s", len(results))
-        except WebSearchError:
-            logger.warning("Web search provider failed for a food lookup.")
-            return self._unresolved(input_food.name, "Web search is currently unavailable.")
+        except WebSearchError as exc:
+            logger.warning("Web search provider failed for a food lookup: %s", exc)
+            return self._unresolved(input_food.name, str(exc))
         if not results:
             return self._unresolved(input_food.name, "Unable to find nutrition search results.")
 
